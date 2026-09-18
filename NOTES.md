@@ -295,28 +295,22 @@ design: `docs/ai-auditor.md`; the reasoning behind each specific constraint:
 
 ## Time spent
 
-**`<!-- TODO: fill in my actual hours before submitting — not estimated or invented by anyone else -->`**
-
-I want to record this honestly rather than have a plausible-sounding number
-sit here that nobody actually measured. A rough phase breakdown, for
-reference, if it helps me reconstruct the total:
+Approximate time spent: **~16–18 hours across two focused days.** This
+included product exploration of Hive Inspect and Spectora, architecture and
+data-model decisions, implementation of the importer/editor/persistence
+workflow, Import Integrity and safe-normalization features, AI Import
+Auditor integration, testing, UI/UX refinement, deployment preparation, and
+documentation.
 
 | Phase | Hours |
 |---|---|
-| Governance, requirements, architecture docs | |
-| Spectora format research + canonical model design | |
-| Deterministic parser | |
-| Persistence layer + atomic writes | |
-| Import Integrity Engine | |
-| Dashboard, import workflow, import report UI | |
-| Template editor + duplication | |
-| Reliability/security hardening pass | |
-| AI Import Auditor | |
-| Testing/QA pass (parser generalization, coverage gaps) | |
-| Product design/polish pass | |
-| Reviewer seeding + Vercel deployment prep | |
-| This documentation pass | |
-| **Total** | |
+| Product exploration & requirements | ~2 |
+| Architecture & data model | ~2 |
+| Core implementation (importer, editor, persistence) | ~7–8 |
+| Import Integrity / edge cases / AI | ~2–3 |
+| Testing & UI polish | ~2 |
+| Documentation & deployment prep | ~1 |
+| **Total** | **~16–18** |
 
 ## Credits
 
