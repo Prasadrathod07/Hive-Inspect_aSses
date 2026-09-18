@@ -6,6 +6,9 @@ import {
   MAX_TEMPLATE_NAME_LENGTH,
 } from "./duplicate-template-validation";
 
+/** Template ids are Postgres uuids. */
+const VALID_TEMPLATE_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+
 describe("deriveCopyName", () => {
   it("proposes '[Original Name] — Copy'", () => {
     expect(deriveCopyName("Standard Home Inspection")).toBe("Standard Home Inspection — Copy");
@@ -28,19 +31,19 @@ describe("deriveCopyName", () => {
 
 describe("DuplicateTemplateSchema", () => {
   it("accepts a valid request and trims the name", () => {
-    const result = DuplicateTemplateSchema.safeParse({ sourceTemplateId: "t-1", name: "  My Copy  " });
+    const result = DuplicateTemplateSchema.safeParse({ sourceTemplateId: VALID_TEMPLATE_ID, name: "  My Copy  " });
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.name).toBe("My Copy");
   });
 
   it("rejects an empty or whitespace-only name", () => {
-    expect(DuplicateTemplateSchema.safeParse({ sourceTemplateId: "t-1", name: "" }).success).toBe(false);
-    expect(DuplicateTemplateSchema.safeParse({ sourceTemplateId: "t-1", name: "   " }).success).toBe(false);
+    expect(DuplicateTemplateSchema.safeParse({ sourceTemplateId: VALID_TEMPLATE_ID, name: "" }).success).toBe(false);
+    expect(DuplicateTemplateSchema.safeParse({ sourceTemplateId: VALID_TEMPLATE_ID, name: "   " }).success).toBe(false);
   });
 
   it("rejects a name over the length limit", () => {
     const result = DuplicateTemplateSchema.safeParse({
-      sourceTemplateId: "t-1",
+      sourceTemplateId: VALID_TEMPLATE_ID,
       name: "x".repeat(MAX_TEMPLATE_NAME_LENGTH + 1),
     });
     expect(result.success).toBe(false);

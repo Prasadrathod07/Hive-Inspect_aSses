@@ -8,8 +8,15 @@ import type { LinkMetadata } from "@/lib/import/types";
  * split (docs/architecture.md).
  */
 
+/**
+ * Every id in this schema is a Postgres `uuid`, so anything that isn't one is
+ * invalid by definition. Rejecting it here means a tampered or stale id fails
+ * with a clear message instead of an opaque database type error.
+ */
+const IdSchema = z.uuid("Invalid id.");
+
 export const UpdateNameSchema = z.object({
-  id: z.string().min(1, "Missing id."),
+  id: IdSchema,
   name: z
     .string()
     .trim()
@@ -19,7 +26,7 @@ export const UpdateNameSchema = z.object({
 export type UpdateNameInput = z.infer<typeof UpdateNameSchema>;
 
 export const UpdateCommentSchema = z.object({
-  id: z.string().min(1, "Missing id."),
+  id: IdSchema,
   html: z.string().max(50_000, "Comment is too long (max 50,000 characters)."),
 });
 export type UpdateCommentInput = z.infer<typeof UpdateCommentSchema>;

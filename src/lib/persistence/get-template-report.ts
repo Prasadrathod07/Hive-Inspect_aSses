@@ -12,6 +12,16 @@ export interface TemplateReportIssue {
   rawSnippet: string;
   importedPreview: string | null;
   resolutionStatus: "open" | "accepted" | "resolved";
+  fixSafelyAvailable: boolean;
+  proposedPlainText: string | null;
+  proposedSafeHtml: string | null;
+  appliedFixAt: string | null;
+}
+
+/** Level A audit trail summary (docs/architecture.md §5a) — never shown as a warning, only as an informational count. */
+export interface NormalizationEventSummary {
+  total: number;
+  byType: Record<string, number>;
 }
 
 export interface TemplateReport {
@@ -22,6 +32,7 @@ export interface TemplateReport {
   status: string;
   integrityResult: IntegrityResult | null;
   issues: TemplateReportIssue[];
+  normalizationEvents: NormalizationEventSummary;
   createdAt: string;
   completedAt: string | null;
 }
@@ -53,12 +64,24 @@ export async function getTemplateReport(templateId: string): Promise<TemplateRep
   const { data: issuesData, error: issuesError } = await client
     .from("import_issues")
     .select(
-      "id, category, severity, source_sheet, source_row_number, explanation, raw_snippet, imported_preview, resolution_status"
+      "id, category, severity, source_sheet, source_row_number, explanation, raw_snippet, imported_preview, resolution_status, fix_safely_available, proposed_plain_text, proposed_safe_html, applied_fix_at"
     )
     .eq("import_run_id", run.id)
     .order("source_row_number", { ascending: true });
 
   if (issuesError) throw new Error(`Failed to load import issues: ${issuesError.message}`);
+
+  const { data: eventsData, error: eventsError } = await client
+    .from("normalization_events")
+    .select("event_type")
+    .eq("import_run_id", run.id);
+
+  if (eventsError) throw new Error(`Failed to load normalization events: ${eventsError.message}`);
+
+  const byType: Record<string, number> = {};
+  for (const event of eventsData ?? []) {
+    byType[event.event_type] = (byType[event.event_type] ?? 0) + 1;
+  }
 
   return {
     templateId: template.id,
@@ -77,7 +100,12 @@ export async function getTemplateReport(templateId: string): Promise<TemplateRep
       rawSnippet: issue.raw_snippet,
       importedPreview: issue.imported_preview,
       resolutionStatus: issue.resolution_status as "open" | "accepted" | "resolved",
+      fixSafelyAvailable: issue.fix_safely_available,
+      proposedPlainText: issue.proposed_plain_text,
+      proposedSafeHtml: issue.proposed_safe_html,
+      appliedFixAt: issue.applied_fix_at,
     })),
+    normalizationEvents: { total: eventsData?.length ?? 0, byType },
     createdAt: run.created_at,
     completedAt: run.completed_at,
   };

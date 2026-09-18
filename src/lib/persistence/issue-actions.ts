@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createServiceRoleClient } from "@/lib/supabase/server-client";
 import type { IssueResolutionStatus } from "./types";
+import { toAppError, formatAppError } from "@/lib/errors/app-error";
 
 /**
  * Human-set review state only — 'open' and 'accepted' are the two states a
@@ -23,12 +24,12 @@ export async function setIssueResolutionStatus(
       .eq("id", issueId);
 
     if (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: formatAppError(toAppError(error, "setIssueResolutionStatus", "save_failed")) };
     }
   } catch (error) {
     // Client construction (e.g. missing credentials) throws rather than
     // rejecting — caught here so the caller always gets a typed result.
-    return { success: false, error: error instanceof Error ? error.message : "Failed to update issue status." };
+    return { success: false, error: formatAppError(toAppError(error, "setIssueResolutionStatus", "save_failed")) };
   }
 
   revalidatePath(`/imports/${importRunId}/issues`);

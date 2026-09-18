@@ -5,6 +5,7 @@ import { createServiceRoleClient } from "@/lib/supabase/server-client";
 import { getEditableTemplate } from "./get-editable-template";
 import { verifyDuplicateIndependence } from "./verify-duplicate-independence";
 import { DuplicateTemplateSchema, DuplicateRpcResultSchema } from "./duplicate-template-validation";
+import { toAppError, formatAppError } from "@/lib/errors/app-error";
 
 export type DuplicateTemplateResult =
   | {
@@ -52,12 +53,21 @@ export async function duplicateTemplate(
       new_name: parsed.data.name,
     });
 
-    if (error) return { success: false, error: error.message };
-    if (!data) return { success: false, error: "duplicate_template returned no data." };
+    if (error) {
+      return { success: false, error: formatAppError(toAppError(error, "duplicateTemplate/rpc", "duplication_failed")) };
+    }
+    if (!data) {
+      return { success: false, error: formatAppError(toAppError(new Error("duplicate_template returned no data"), "duplicateTemplate/rpc", "duplication_failed")) };
+    }
 
     const rpcResult = DuplicateRpcResultSchema.safeParse(data);
     if (!rpcResult.success) {
-      return { success: false, error: "duplicate_template returned an unexpected shape." };
+      return {
+        success: false,
+        error: formatAppError(
+          toAppError(new Error("duplicate_template returned an unexpected shape"), "duplicateTemplate/rpcShape", "duplication_failed")
+        ),
+      };
     }
 
     const [original, copy] = await Promise.all([
@@ -95,7 +105,7 @@ export async function duplicateTemplate(
     // always gets a typed result rather than an unhandled rejection.
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to duplicate this template.",
+      error: formatAppError(toAppError(error, "duplicateTemplate", "duplication_failed")),
     };
   }
 }

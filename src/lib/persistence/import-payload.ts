@@ -42,6 +42,9 @@ export interface ImportRpcPayload {
     explanation: string;
     raw_snippet: string;
     imported_preview: string | null;
+    fix_safely_available: boolean;
+    proposed_plain_text: string | null;
+    proposed_safe_html: string | null;
   }>;
 }
 
@@ -89,6 +92,9 @@ export function toImportPayload(
       explanation: issue.explanation,
       raw_snippet: issue.rawSnippet,
       imported_preview: issue.importedPreview,
+      fix_safely_available: issue.fixSafelyAvailable ?? false,
+      proposed_plain_text: issue.proposedPlainText ?? null,
+      proposed_safe_html: issue.proposedSafeHtml ?? null,
     })),
   };
 }

@@ -83,7 +83,7 @@ describe("toImportPayload", () => {
     expect(payload.template.sections[0].items[0].comments[1].link_metadata).toBeNull();
   });
 
-  it("maps issue candidates into the flat issues array", () => {
+  it("maps issue candidates into the flat issues array, defaulting fix-safely fields when absent", () => {
     const payload = toImportPayload(template, { sourceFilename: "sample.xlsx", sourceFileSha256: "abc123" }, issues);
     expect(payload.issues).toEqual([
       {
@@ -94,8 +94,33 @@ describe("toImportPayload", () => {
         explanation: "Removed unsupported tag(s): script.",
         raw_snippet: "<script>x</script>",
         imported_preview: "preview",
+        fix_safely_available: false,
+        proposed_plain_text: null,
+        proposed_safe_html: null,
       },
     ]);
+  });
+
+  it("maps a recoverable_formatting issue's proposed fix through to the RPC contract", () => {
+    const recoverable: ImportIssueCandidate[] = [
+      {
+        category: "recoverable_formatting",
+        severity: "info",
+        sourceRef: { sheet: "Sheet1", rowNumber: 6 },
+        explanation: "Recoverable.",
+        rawSnippet: '<div class="x">Roof condition good.</div>',
+        importedPreview: "Roof condition good.",
+        fixSafelyAvailable: true,
+        proposedPlainText: "Roof condition good.",
+        proposedSafeHtml: "Roof condition good.",
+      },
+    ];
+    const payload = toImportPayload(template, { sourceFilename: "sample.xlsx", sourceFileSha256: "abc123" }, recoverable);
+    expect(payload.issues[0]).toMatchObject({
+      fix_safely_available: true,
+      proposed_plain_text: "Roof condition good.",
+      proposed_safe_html: "Roof condition good.",
+    });
   });
 
   it("produces an empty sections/issues array for an empty template, not an error", () => {

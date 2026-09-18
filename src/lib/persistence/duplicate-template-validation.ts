@@ -22,7 +22,9 @@ export function deriveCopyName(originalName: string): string {
 }
 
 export const DuplicateTemplateSchema = z.object({
-  sourceTemplateId: z.string().min(1, "Missing template id."),
+  // Template ids are Postgres uuids — reject anything else before it reaches
+  // the database rather than surfacing a type error from Postgres.
+  sourceTemplateId: z.uuid("Invalid template id."),
   name: z
     .string()
     .trim()
