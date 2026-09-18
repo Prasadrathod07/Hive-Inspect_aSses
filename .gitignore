@@ -29,6 +29,7 @@ Thumbs.db
 coverage/
 playwright-report/
 test-results/
+.vitest/
 
 # Vercel
 .vercel
