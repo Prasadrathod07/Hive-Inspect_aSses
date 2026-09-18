@@ -73,13 +73,16 @@ importantly — what isn't yet.
 
 ## 4. Live URL
 
-> **`<!-- TODO: paste the deployed Vercel URL here before submission -->`**
->
-> Not filled in. Deployment requires a real Spectora export
-> (`sample-data/spectora/README.md` — currently the single blocking gap in
-> this project) and a live Supabase project with migrations applied and
-> `npm run seed` run against it. The app itself is deploy-ready — see
-> `docs/deployment.md` — but no deployment has actually happened yet.
+**https://hive-inspect-a-sses-sepia.vercel.app/**
+
+Deployed on Vercel from the `main` branch. Supabase credentials are
+configured as production environment variables there — `GET /api/health`
+on that URL reports live connectivity with no secrets exposed. Seeding the
+deployed database with the real Spectora template
+(`sample-data/spectora/Residential Template-2026-09-15.xls`, via
+`npm run seed` pointed at production) is the last step before the live app
+opens with something to explore — see `docs/requirements-matrix.md` row 15
+for current status.
 
 ## 5. Demo / reviewer instructions
 
@@ -458,7 +461,7 @@ npm run test:e2e         # Playwright browser smoke tests
 ```
 
 All five must pass before any change is considered done — this project's own
-working rule throughout (`CLAUDE.md` §5). Two Vitest integration test files
+working rule throughout (`ENGINEERING.md` §5). Two Vitest integration test files
 and 8 of 13 Playwright tests need a live, migrated Supabase database and are
 skip-gated rather than left to fail red — see `docs/testing.md` for exactly
 what's covered, what's skip-gated and why, and the honest coverage-gaps list
@@ -545,7 +548,7 @@ tests/
   fixtures/                   The synthetic test fixture + its golden-output JSON
 docs/                         See below — this project's actual engineering record, not
                                 an afterthought
-CLAUDE.md                     Engineering constitution — governs how work happens in this repo
+ENGINEERING.md                     Engineering constitution — governs how work happens in this repo
 NOTES.md                      What was prioritized, cut, and known-limited — read this next
 ```
 
