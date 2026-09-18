@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { FileText } from "lucide-react";
 import { PageShell } from "@/components/layout/page-shell";
+import { toAppError } from "@/lib/errors/app-error";
 import { PageHeader } from "@/components/patterns/page-header";
-import { SectionCard } from "@/components/patterns/section-card";
+import { Breadcrumb } from "@/components/patterns/breadcrumb";
+import { ErrorState } from "@/components/patterns/error-state";
 import { getEditableTemplate } from "@/lib/persistence/get-editable-template";
 import { TemplateEditor } from "./template-editor";
 
@@ -31,9 +33,9 @@ export default async function TemplateEditorPage({
     return (
       <PageShell>
         <PageHeader title="Template editor" icon={FileText} backHref="/" backLabel="Templates" />
-        <SectionCard
+        <ErrorState
           title="Couldn't load this template"
-          description={error instanceof Error ? error.message : "An unexpected error occurred."}
+          error={toAppError(error, "TemplateEditorPage")}
         />
       </PageShell>
     );
@@ -42,13 +44,14 @@ export default async function TemplateEditorPage({
   if (!template) notFound();
 
   return (
-    <PageShell className="max-w-7xl">
-      <PageHeader
-        title="Template editor"
-        description="Edit section names, item names, and comment text. Changes save automatically."
+    <PageShell className="gap-4">
+      {/* Just the trail back. The editor's own sticky bar carries the
+          template's identity and save state, so a second heading here would
+          only repeat it. */}
+      <Breadcrumb
+        trail={[{ label: "Templates", href: "/" }]}
+        current={template.name}
         icon={FileText}
-        backHref="/"
-        backLabel="Templates"
       />
       <TemplateEditor template={template} />
     </PageShell>

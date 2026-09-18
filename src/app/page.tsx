@@ -6,8 +6,10 @@ import { MetricCard } from "@/components/patterns/metric-card";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { ErrorState } from "@/components/patterns/error-state";
 import { TemplateCard } from "@/components/patterns/template-card";
+import { Button } from "@/components/ui/button";
 import { listTemplateSummaries } from "@/lib/persistence/list-templates";
 import { formatRelativeTime } from "@/lib/format-relative-time";
+import { toAppError, type AppError } from "@/lib/errors/app-error";
 
 export const metadata = {
   title: { absolute: "Hive Template Migrator" },
@@ -17,17 +19,25 @@ export const metadata = {
 // serve a build-time snapshot.
 export const dynamic = "force-dynamic";
 
-const IMPORT_BUTTON_CLASSNAME =
-  "inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-sm font-medium text-primary-foreground outline-none transition-all hover:bg-primary/90 focus-visible:ring-3 focus-visible:ring-ring/50";
+function ImportButton() {
+  return (
+    <Button asChild>
+      <Link href="/import">
+        <Upload className="size-4" aria-hidden="true" />
+        Import template
+      </Link>
+    </Button>
+  );
+}
 
 export default async function TemplatesPage() {
   let templates: Awaited<ReturnType<typeof listTemplateSummaries>> = [];
-  let loadError: string | null = null;
+  let loadError: AppError | null = null;
 
   try {
     templates = await listTemplateSummaries();
   } catch (error) {
-    loadError = error instanceof Error ? error.message : "Failed to load templates.";
+    loadError = toAppError(error, "TemplatesPage");
   }
 
   const needsReview = templates.filter(
@@ -41,19 +51,11 @@ export default async function TemplatesPage() {
         title="Templates"
         description="Import, edit, and verify Spectora template migrations."
         icon={LayoutTemplate}
-        actions={
-          <Link href="/import" className={IMPORT_BUTTON_CLASSNAME}>
-            <Upload className="size-4" aria-hidden="true" />
-            Import template
-          </Link>
-        }
+        actions={<ImportButton />}
       />
 
       {loadError ? (
-        <ErrorState
-          title="Couldn't load templates"
-          description={loadError}
-        />
+        <ErrorState title="Couldn't load templates" error={loadError} />
       ) : (
         <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -77,12 +79,7 @@ export default async function TemplatesPage() {
               icon={LayoutTemplate}
               title="No templates yet"
               description="Import a Spectora “Export to spreadsheet → Export HTML Text” file to create your first editable template."
-              action={
-                <Link href="/import" className={IMPORT_BUTTON_CLASSNAME}>
-                  <Upload className="size-4" aria-hidden="true" />
-                  Import template
-                </Link>
-              }
+              action={<ImportButton />}
             />
           ) : (
             <div className="flex flex-col gap-3">

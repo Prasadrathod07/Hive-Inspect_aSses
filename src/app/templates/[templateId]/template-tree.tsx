@@ -67,12 +67,18 @@ export function TemplateTree({ sections, selection, onSelect }: TemplateTreeProp
                   onSelect({ sectionId: section.id });
                   expand(section.id);
                 }}
+                aria-current={isSectionSelected ? "true" : undefined}
                 className={cn(
-                  "min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-                  isSectionSelected ? "bg-accent font-medium text-primary" : "text-text hover:bg-surface-muted"
+                  "flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                  isSectionSelected
+                    ? "bg-accent font-semibold text-primary"
+                    : "font-medium text-text hover:bg-surface-muted"
                 )}
               >
-                {section.name || "Untitled section"}
+                <span className="min-w-0 flex-1 truncate">{section.name || "Untitled section"}</span>
+                <span className="shrink-0 text-xs font-normal tabular-nums text-text-muted">
+                  {section.items.length}
+                </span>
               </button>
             </div>
 
@@ -88,14 +94,20 @@ export function TemplateTree({ sections, selection, onSelect }: TemplateTreeProp
                         key={item.id}
                         type="button"
                         onClick={() => onSelect({ sectionId: section.id, itemId: item.id })}
+                        aria-current={isItemSelected ? "true" : undefined}
                         className={cn(
-                          "truncate rounded-md px-2 py-1.5 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                          "flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
                           isItemSelected
                             ? "bg-accent font-medium text-primary"
                             : "text-text-muted hover:bg-surface-muted hover:text-text"
                         )}
                       >
-                        {item.name || "Untitled item"}
+                        <span className="min-w-0 flex-1 truncate">{item.name || "Untitled item"}</span>
+                        {item.comments.length > 0 ? (
+                          <span className="shrink-0 text-xs tabular-nums text-text-muted">
+                            {item.comments.length}
+                          </span>
+                        ) : null}
                       </button>
                     );
                   })

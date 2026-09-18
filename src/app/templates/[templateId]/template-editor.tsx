@@ -49,16 +49,15 @@ export function TemplateEditor({ template }: TemplateEditorProps) {
   return (
     <EditorSessionProvider onAggregateChange={setSaveState}>
       <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface p-4">
-          <div className="flex min-w-0 flex-col gap-1">
-            <h1 className="truncate text-lg font-semibold text-text">{template.name}</h1>
-            <p className="text-xs text-text-muted">
-              Source: Spectora · {template.sourceFilename}
-            </p>
+        {/* Sticky: save status is the one thing that must never scroll out of
+            sight while editing, since it's the only signal that work is safe. */}
+        <div className="sticky top-14 z-30 -mx-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border bg-background/95 px-1 py-3 backdrop-blur supports-backdrop-filter:bg-background/80">
+          <div className="flex min-w-0 flex-col">
+            <h1 className="truncate text-base font-semibold text-text">{template.name}</h1>
+            <p className="truncate text-xs text-text-muted">{template.sourceFilename}</p>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <SaveStatus state={saveState} />
-            <DuplicateTemplateButton templateId={template.id} templateName={template.name} />
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <SaveStatus state={saveState} className="mr-1" />
             {template.importRunId ? (
               <Button variant="outline" size="sm" asChild>
                 <Link href={`/templates/${template.id}/import-report`}>
@@ -67,12 +66,21 @@ export function TemplateEditor({ template }: TemplateEditorProps) {
                 </Link>
               </Button>
             ) : null}
+            <DuplicateTemplateButton templateId={template.id} templateName={template.name} />
           </div>
         </div>
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr]">
-          <aside className="rounded-xl border border-border bg-surface p-2 lg:sticky lg:top-20 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
-            <TemplateTree sections={sections} selection={selection} onSelect={setSelection} />
+          <aside className="rounded-xl border border-border bg-surface lg:sticky lg:top-[4.5rem] lg:max-h-[calc(100vh-6.5rem)] lg:overflow-y-auto">
+            <div className="sticky top-0 z-10 flex items-baseline justify-between gap-2 border-b border-border bg-surface px-3 py-2">
+              <h2 className="text-xs font-semibold tracking-wide text-text-muted uppercase">Hierarchy</h2>
+              <span className="text-xs tabular-nums text-text-muted">
+                {sections.length} section{sections.length === 1 ? "" : "s"}
+              </span>
+            </div>
+            <div className="p-2">
+              <TemplateTree sections={sections} selection={selection} onSelect={setSelection} />
+            </div>
           </aside>
 
           <main className="min-w-0 rounded-xl border border-border bg-surface p-5">
