@@ -1,15 +1,19 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AlertTriangle, CheckCircle2, ShieldCheck, LayoutTemplate, ListTodo } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Info, ShieldCheck, LayoutTemplate, ListTodo, Sparkles } from "lucide-react";
 import { PageShell } from "@/components/layout/page-shell";
+import { toAppError } from "@/lib/errors/app-error";
 import { PageHeader } from "@/components/patterns/page-header";
+import { ErrorState } from "@/components/patterns/error-state";
 import { SectionCard } from "@/components/patterns/section-card";
 import { MetricCard } from "@/components/patterns/metric-card";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { IntegrityStatusBadge, getImportHeadline } from "@/components/patterns/integrity-status-badge";
 import { Button } from "@/components/ui/button";
 import { getTemplateReport } from "@/lib/persistence/get-template-report";
+import { AiImportReview } from "./ai-import-review";
+import { PreservationVerdict } from "./preservation-verdict";
 import { groupIssues } from "@/lib/integrity/issue-presentation";
 import { cn } from "@/lib/utils";
 
@@ -25,15 +29,72 @@ function formatTimestamp(iso: string): string {
   return new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
 }
 
-function CheckRow({ label, ok, detail }: { label: string; ok: boolean; detail: string }) {
-  const Icon = ok ? CheckCircle2 : AlertTriangle;
+function countLabel(count: number, noun: string): string {
+  if (count === 0) return "None";
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+const NORMALIZATION_EVENT_LABELS: Record<string, string> = {
+  whitespace_trimmed: "Whitespace cleanup",
+  duplicate_whitespace_collapsed: "Whitespace cleanup",
+  empty_tag_removed: "HTML wrapper cleanup",
+  harmless_wrapper_removed: "HTML wrapper cleanup",
+  line_break_normalized: "Line break normalization",
+  html_entity_decoded: "Entity normalization",
+  formatting_normalized: "Supported formatting normalization",
+  safe_link_normalized: "Link normalization",
+};
+
+function formatNormalizationEventType(type: string): string {
+  return NORMALIZATION_EVENT_LABELS[type] ?? type;
+}
+
+/** Several raw event types share one display label (e.g. two whitespace-related types) — merge their counts so the expandable breakdown reads as one line per label, not one per internal type. */
+function groupNormalizationCountsByLabel(byType: Record<string, number>): Array<[string, number]> {
+  const byLabel = new Map<string, number>();
+  for (const [type, count] of Object.entries(byType)) {
+    const label = formatNormalizationEventType(type);
+    byLabel.set(label, (byLabel.get(label) ?? 0) + count);
+  }
+  return [...byLabel.entries()];
+}
+
+/**
+ * One verification result.
+ *
+ * `tone` separates "this check failed" from "this check found something worth
+ * knowing". A formatting change is expected, recorded, reversible-by-reading,
+ * and not a failure — painting it the same red as a text-preservation
+ * mismatch would teach reviewers to ignore the colour that actually matters.
+ */
+function CheckRow({
+  label,
+  ok,
+  detail,
+  tone = "destructive",
+}: {
+  label: string;
+  ok: boolean;
+  detail: string;
+  tone?: "warning" | "destructive";
+}) {
+  const Icon = ok ? CheckCircle2 : tone === "warning" ? Info : AlertTriangle;
+  const iconClass = ok ? "text-success" : tone === "warning" ? "text-warning" : "text-destructive";
+
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-border py-2.5 last:border-b-0">
-      <span className="flex items-center gap-2 text-sm text-text">
-        <Icon className={cn("size-4 shrink-0", ok ? "text-success" : "text-warning")} aria-hidden="true" />
-        {label}
-      </span>
-      <span className="text-sm text-text-muted">{detail}</span>
+    <div className="flex items-center justify-between gap-4 border-b border-border px-3 py-2.5 last:border-b-0">
+      <dt className="flex min-w-0 items-center gap-2 text-sm text-text">
+        <Icon className={cn("size-4 shrink-0", iconClass)} aria-hidden="true" />
+        <span className="truncate">{label}</span>
+      </dt>
+      <dd
+        className={cn(
+          "shrink-0 text-sm tabular-nums",
+          ok ? "text-text-muted" : tone === "warning" ? "text-warning" : "text-destructive"
+        )}
+      >
+        {detail}
+      </dd>
     </div>
   );
 }
@@ -50,10 +111,7 @@ export default async function ImportReportPage({
     return (
       <PageShell>
         <PageHeader title="Import integrity report" icon={ShieldCheck} backHref="/" backLabel="Templates" />
-        <SectionCard
-          title="Couldn't load this report"
-          description={error instanceof Error ? error.message : "An unexpected error occurred."}
-        />
+        <ErrorState title="Couldn't load this report" error={toAppError(error, "ImportReportPage")} />
       </PageShell>
     );
   }
@@ -100,43 +158,28 @@ export default async function ImportReportPage({
     <PageShell>
       <PageHeader title={report.templateName} icon={ShieldCheck} actions={headerActions} />
 
-      <div
-        className={cn(
-          "flex flex-col gap-1 rounded-xl border p-5",
-          headline.tone === "success" && "border-success-muted bg-success-muted/40",
-          headline.tone === "warning" && "border-warning-muted bg-warning-muted/40",
-          headline.tone === "destructive" && "border-destructive-muted bg-destructive-muted/40"
-        )}
-      >
+      {/* Run identity stays quiet and factual — a caption, not an alarm. The
+          status word carries the tone; the surrounding chrome stays neutral so
+          an import "with warnings" doesn't read as a failure. */}
+      <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5">
         <div className="flex flex-wrap items-center gap-2">
-          <h1
-            className={cn(
-              "text-lg font-semibold",
-              headline.tone === "success" && "text-success",
-              headline.tone === "warning" && "text-warning",
-              headline.tone === "destructive" && "text-destructive"
-            )}
-          >
-            {headline.text}
-          </h1>
+          <h2 className="text-base font-semibold text-text">{headline.text}</h2>
           <IntegrityStatusBadge status={integrity.status} />
         </div>
-        <p className="text-sm text-text">{integrity.summary}</p>
-        <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-xs text-text-muted">
-          <div className="flex gap-1">
-            <dt className="font-medium text-text">Template:</dt>
-            <dd>{report.templateName}</dd>
+        <p className="max-w-3xl text-sm text-text-muted">{integrity.summary}</p>
+        <dl className="flex flex-wrap gap-x-6 gap-y-1.5 border-t border-border pt-3 text-xs">
+          <div className="flex min-w-0 gap-1.5">
+            <dt className="shrink-0 text-text-muted">Source file</dt>
+            <dd className="min-w-0 truncate font-medium text-text">{report.sourceFilename}</dd>
           </div>
-          <div className="flex gap-1">
-            <dt className="font-medium text-text">Source file:</dt>
-            <dd>{report.sourceFilename}</dd>
-          </div>
-          <div className="flex gap-1">
-            <dt className="font-medium text-text">Imported:</dt>
-            <dd>{formatTimestamp(timestamp)}</dd>
+          <div className="flex gap-1.5">
+            <dt className="shrink-0 text-text-muted">Imported</dt>
+            <dd className="font-medium text-text">{formatTimestamp(timestamp)}</dd>
           </div>
         </dl>
       </div>
+
+      <PreservationVerdict coverage={integrity.sourceCoverage} />
 
       <SectionCard title="Import Integrity" description="Every number below is computed deterministically — never an AI estimate, never a percentage score.">
         <div className="flex flex-col gap-5">
@@ -156,56 +199,75 @@ export default async function ImportReportPage({
           </div>
 
           <div>
-            <h3 className="mb-2 text-sm font-semibold text-text">Source-row coverage</h3>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <MetricCard label="Meaningful rows" value={String(integrity.sourceCoverage.meaningfulSourceRows)} />
-              <MetricCard label="Mapped" value={String(integrity.sourceCoverage.mappedRows)} />
-              <MetricCard label="Unsupported" value={String(integrity.sourceCoverage.unsupportedRows)} />
-              <MetricCard label="Ignored (reasoned)" value={String(integrity.sourceCoverage.ignoredRowsWithReason)} />
-            </div>
-            <p
-              className={cn(
-                "mt-3 rounded-lg border px-3 py-2 text-sm font-medium",
-                integrity.sourceCoverage.unaccountedRows > 0
-                  ? "border-destructive-muted bg-destructive-muted/40 text-destructive"
-                  : "border-success-muted bg-success-muted/40 text-success"
-              )}
-            >
-              {integrity.sourceCoverage.unaccountedRows} unaccounted source row
-              {integrity.sourceCoverage.unaccountedRows === 1 ? "" : "s"}
-            </p>
-          </div>
-
-          <div>
             <h3 className="mb-2 text-sm font-semibold text-text">Verification checks</h3>
-            <CheckRow
-              label="Ordering"
-              ok={integrity.ordering.status === "verified"}
-              detail={integrity.ordering.status}
-            />
-            <CheckRow
-              label="Text preservation"
-              ok={integrity.textPreservation.status === "verified"}
-              detail={`${integrity.textPreservation.status} (${integrity.textPreservation.comparedCount} compared)`}
-            />
-            <CheckRow
-              label="Links imported / source"
-              ok={integrity.links.preservedLinks === integrity.links.sourceLinks}
-              detail={`${integrity.links.preservedLinks} / ${integrity.links.sourceLinks}`}
-            />
-            <CheckRow
-              label="Formatting issues"
-              ok={integrity.formattingWarnings.length === 0}
-              detail={String(integrity.formattingWarnings.length)}
-            />
-            <CheckRow
-              label="Structural warnings"
-              ok={integrity.structuralWarnings.length === 0}
-              detail={String(integrity.structuralWarnings.length)}
-            />
+            <dl className="rounded-lg border border-border">
+              <CheckRow
+                label="Ordering"
+                ok={integrity.ordering.status === "verified"}
+                detail={integrity.ordering.status === "verified" ? "Preserved" : "Mismatch"}
+              />
+              <CheckRow
+                label="Text preservation"
+                ok={integrity.textPreservation.status === "verified"}
+                detail={
+                  integrity.textPreservation.status === "verified"
+                    ? `${integrity.textPreservation.comparedCount} compared, all identical`
+                    : `${integrity.textPreservation.mismatches.length} of ${integrity.textPreservation.comparedCount} differ`
+                }
+              />
+              <CheckRow
+                label="Links"
+                ok={integrity.links.preservedLinks === integrity.links.sourceLinks}
+                detail={`${integrity.links.preservedLinks} of ${integrity.links.sourceLinks} preserved`}
+              />
+              <CheckRow
+                label="Formatting changes"
+                ok={integrity.formattingWarnings.length === 0}
+                tone="warning"
+                detail={countLabel(integrity.formattingWarnings.length, "change")}
+              />
+              <CheckRow
+                label="Structural warnings"
+                ok={integrity.structuralWarnings.length === 0}
+                tone="warning"
+                detail={countLabel(integrity.structuralWarnings.length, "warning")}
+              />
+            </dl>
           </div>
         </div>
       </SectionCard>
+
+      {report.normalizationEvents.total > 0 ? (
+        <details className="group rounded-xl border border-border bg-surface-muted px-4 py-3 text-sm text-text-muted open:pb-4">
+          <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-text marker:content-none">
+            <Sparkles className="size-4 shrink-0 text-text-muted" aria-hidden="true" />
+            Automatic cleanup — {report.normalizationEvents.total} harmless formatting{" "}
+            {report.normalizationEvents.total === 1 ? "difference was" : "differences were"} normalized
+            automatically.
+          </summary>
+          <p className="mt-2 max-w-3xl text-xs text-text-muted">
+            Whitespace, empty HTML tags, standard entities, and equivalent supported formatting were
+            cleaned up automatically — none of this changed customer-authored wording or meaning, so it
+            was never treated as a warning. See <code className="font-mono">docs/architecture.md</code> §5a
+            for the full policy.
+          </p>
+          <ul className="mt-3 flex flex-col gap-1 text-xs">
+            {groupNormalizationCountsByLabel(report.normalizationEvents.byType).map(([label, count]) => (
+              <li key={label} className="flex items-center justify-between gap-4 border-t border-border pt-1.5 first:border-t-0 first:pt-0">
+                <span className="text-text-muted">{label}</span>
+                <span className="tabular-nums text-text">{count}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+
+      {/* Below the deterministic metrics, deliberately. The integrity result
+          is rendered and complete before this component even mounts. */}
+      <AiImportReview
+        importRunId={report.importRunId}
+        issueLinkBase={`/imports/${report.importRunId}/issues`}
+      />
 
       <SectionCard
         title="Issues for review"
