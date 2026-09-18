@@ -1,4 +1,4 @@
-# CLAUDE.md — Engineering Constitution for Hive Inspect (FDE Assessment)
+# ENGINEERING.md — Engineering Constitution for Hive Inspect (FDE Assessment)
 
 This file governs how any engineer — human or AI agent — works in this repository.
 It takes precedence over general habits, defaults, or "helpful" shortcuts. If a

@@ -459,7 +459,7 @@ the *default* plan, because the actual fix for "the real file is bigger than
 direct upload — a genuine architecture change, not a constant edit — and
 building that speculatively, before a real export has ever been measured,
 would be exactly the kind of unasked-for scope expansion this project avoids
-elsewhere (D1, the "simple over clever" principle in CLAUDE.md §2). If the
+elsewhere (D1, the "simple over clever" principle in ENGINEERING.md §2). If the
 real export turns out to need it, that's the next deliberate phase, not a
 silent default.
 

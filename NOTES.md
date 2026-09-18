@@ -1,6 +1,6 @@
 # Notes
 
-Written last, as the constitution for this project (`CLAUDE.md`) required —
+Written last, as the constitution for this project (`ENGINEERING.md`) required —
 after the deterministic baseline, the AI layer, the reliability pass, and
 the deployment prep were all done and tested, not before. This is the honest
 account of what I prioritized, what I cut, what I'm not sure about, and how

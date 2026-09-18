@@ -6,7 +6,7 @@ not a set of parallel workstreams, so that correctness at each stage is never
 resting on an unverified assumption from the stage before it.
 
 ## Phase 0 — Governance & Setup (this pass)
-- CLAUDE.md, requirements matrix, architecture doc, decision log, work plan.
+- ENGINEERING.md, requirements matrix, architecture doc, decision log, work plan.
 - Confirm real Spectora sample export location, or flag it missing.
 - Git repository initialized; `.gitignore` protecting `.env`.
 - **Exit criteria**: docs exist and are internally consistent; blockers on the
@@ -90,7 +90,7 @@ resting on an unverified assumption from the stage before it.
   server actions.
 - Import report screen surfacing preservation verification results and the
   absent-vs-unsupported distinction visually.
-- Visual direction per `CLAUDE.md`/assessment design principles: clean,
+- Visual direction per `ENGINEERING.md`/assessment design principles: clean,
   restrained, B2B SaaS — not a hackathon UI.
 - **Exit criteria**: manual (and where practical, Playwright) walkthrough of
   import → review report → edit a section/item/comment → reload → edits

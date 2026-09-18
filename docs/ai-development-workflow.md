@@ -7,7 +7,7 @@ project was actually built, not a sanitized summary of it.
 ## Tool
 
 [Claude Code](https://claude.com/claude-code) was used throughout, working
-directly in this repository under my own direction. `CLAUDE.md` at the repo
+directly in this repository under my own direction. `ENGINEERING.md` at the repo
 root is the governing document every session was required to read first —
 it's the actual engineering constitution this project operated under, not
 a README written after the fact to look organized. It states the
@@ -25,7 +25,7 @@ intended phase boundaries before any code was written, specifically so a
 later phase's correctness was never resting on an earlier phase's unverified
 assumption. Roughly, in the order they actually happened:
 
-1. Governance & documentation scaffold (`CLAUDE.md`, `docs/architecture.md`,
+1. Governance & documentation scaffold (`ENGINEERING.md`, `docs/architecture.md`,
    `docs/decision-log.md`, `docs/requirements-matrix.md`) — before any
    application code.
 2. Application foundation (Next.js, TypeScript, Tailwind, design system).
@@ -59,7 +59,7 @@ assumption. Roughly, in the order they actually happened:
 16. This documentation pass.
 
 Each phase's prompt stated its scope, its hard constraints (often carried
-forward verbatim from `CLAUDE.md`), and ended with an instruction to run the
+forward verbatim from `ENGINEERING.md`), and ended with an instruction to run the
 verification gate and report back — not to just report "done."
 
 ## Human verification
@@ -136,7 +136,7 @@ code needs to do:
   `NOTES.md`'s "Known limitations" section says plainly what's still
   unverified, including the single largest limitation of this entire
   submission (no real Spectora export has ever been parsed by this system).
-- **Scope stayed bounded to what was asked.** `CLAUDE.md` §4 explicitly
+- **Scope stayed bounded to what was asked.** `ENGINEERING.md` §4 explicitly
   prohibits speculative scope expansion, and it held — no inspection
   scheduling, no payments, no homeowner portal, nothing beyond what the
   assessment actually asked for (`NOTES.md` "What I cut and why" has the
@@ -147,7 +147,7 @@ code needs to do:
 
 ## Reusable artifacts
 
-- **`CLAUDE.md`** — kept, not archived. It's the actual document every
+- **`ENGINEERING.md`** — kept, not archived. It's the actual document every
   phase of this project operated under, and it still reflects this
   project's real current state (including real current blockers), not a
   snapshot from early in development.

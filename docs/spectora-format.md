@@ -118,7 +118,7 @@ back here.
 ## Parser implementation (this phase)
 
 The full deterministic pipeline now exists in `src/lib/import/` — no LLM
-anywhere in it, by design (see `docs/decision-log.md` D3 and `CLAUDE.md` §4).
+anywhere in it, by design (see `docs/decision-log.md` D3 and `ENGINEERING.md` §4).
 Stage-by-stage:
 
 `validate-file.ts` → `workbook.ts` → `extract-rows.ts` → `normalize.ts` →

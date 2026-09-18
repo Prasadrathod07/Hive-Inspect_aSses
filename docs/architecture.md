@@ -322,7 +322,7 @@ deterministic integrity engine output (already computed, already persisted)
   → AI auditor (read-only) → plain-language explanation surfaced in the UI
 ```
 
-Hard constraints (mirrored in `CLAUDE.md` §4):
+Hard constraints (mirrored in `ENGINEERING.md` §4):
 - Does not parse the source spreadsheet.
 - Does not invent sections, items, or content.
 - Does not change any imported/persisted content.
