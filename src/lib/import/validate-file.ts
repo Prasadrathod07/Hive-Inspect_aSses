@@ -6,12 +6,45 @@ import type { ImportIssueCandidate } from "./types";
  * "readable workbook" (stage 2, `workbook.ts`) so a bad upload gets a
  * precise, honest reason rather than a generic parser error.
  *
- * ASSUMPTION (docs/spectora-format.md): 20MB is a generous ceiling for a
- * spreadsheet-only export (no embedded photos) — unverified against a real
- * Spectora file, adjust once one is available.
+ * SIZE LIMIT: capped by the deployment platform, not by an assumption about
+ * spreadsheet size. Vercel Functions hard-reject any request body over
+ * 4.5MB with a platform-level 413 (FUNCTION_PAYLOAD_TOO_LARGE) before this
+ * code — or even the Content-Length pre-check in the API route — ever runs;
+ * that limit is not configurable on any plan
+ * (https://vercel.com/docs/functions/limitations#request-body-size,
+ * confirmed 2026-09). 4MB leaves headroom under that ceiling for
+ * multipart/form-data overhead (boundary, headers, filename field) so our
+ * own honest "file too large" error is always the one a person sees,
+ * never an opaque platform rejection. A spreadsheet-only export (no
+ * embedded photos) should comfortably fit; if a real Spectora export
+ * turns out to need more, the fix is raising the *platform* limit (Vercel
+ * Blob / a presigned direct upload), not this constant — see
+ * docs/deployment.md.
  */
-export const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024;
+export const MAX_FILE_SIZE_BYTES = 4 * 1024 * 1024;
 export const SUPPORTED_EXTENSIONS = [".xlsx", ".xls"];
+
+/**
+ * An extension is a claim, not evidence — anyone can rename a file to
+ * `.xlsx`. These are the actual container signatures:
+ *   - .xlsx is a ZIP archive: "PK\x03\x04"
+ *   - .xls is an OLE2 compound file: D0 CF 11 E0 A1 B1 1A E1
+ * Checking them means a renamed PDF/script/image is rejected with a clear
+ * reason before SheetJS is ever handed arbitrary bytes to parse.
+ */
+const ZIP_SIGNATURE = [0x50, 0x4b, 0x03, 0x04];
+const OLE2_SIGNATURE = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+
+function startsWith(bytes: Uint8Array, signature: number[]): boolean {
+  if (bytes.length < signature.length) return false;
+  return signature.every((byte, index) => bytes[index] === byte);
+}
+
+/** True if the bytes actually look like a spreadsheet container, whatever the file is called. */
+export function hasSpreadsheetSignature(buffer: ArrayBuffer | Buffer): boolean {
+  const bytes = Buffer.isBuffer(buffer) ? buffer : new Uint8Array(buffer);
+  return startsWith(bytes, ZIP_SIGNATURE) || startsWith(bytes, OLE2_SIGNATURE);
+}
 
 function blockingFileIssue(explanation: string, filename: string): ImportIssueCandidate {
   return {
@@ -51,6 +84,13 @@ export function validateFile(input: ValidateFileInput): ImportIssueCandidate | n
   if (!hasSupportedExtension) {
     return blockingFileIssue(
       `Unsupported file type "${input.filename}". Expected one of: ${SUPPORTED_EXTENSIONS.join(", ")}.`,
+      input.filename
+    );
+  }
+
+  if (!hasSpreadsheetSignature(input.buffer)) {
+    return blockingFileIssue(
+      `"${input.filename}" is named like a spreadsheet, but its contents aren't one. Re-export from Spectora rather than renaming a file.`,
       input.filename
     );
   }

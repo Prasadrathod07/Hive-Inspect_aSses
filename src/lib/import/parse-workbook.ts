@@ -1,12 +1,14 @@
 import { validateFile } from "./validate-file";
 import { loadWorkbook } from "./workbook";
-import { extractSheet } from "./extract-rows";
+import { extractSheet, sheetHasContent } from "./extract-rows";
 import { normalizeRows, isMeaningfulRow } from "./normalize";
 import { buildHierarchy } from "./hierarchy";
 import { validateCanonicalTemplate } from "./validate";
 import type {
+  CanonicalSection,
   CanonicalTemplate,
   ImportIssueCandidate,
+  NormalizationEvent,
   SourceRowRecord,
   TemplateNameSource,
 } from "./types";
@@ -38,6 +40,8 @@ export type ParseSpectoraWorkbookResult =
       issues: ImportIssueCandidate[];
       /** Every meaningful source row, for the Import Integrity Engine's source-row coverage check. */
       sourceRowRecords: SourceRowRecord[];
+      /** Level A silent-normalization audit trail (docs/architecture.md §5a) — never surfaced as a warning. */
+      normalizationEvents: NormalizationEvent[];
     }
   | { ok: false; issues: ImportIssueCandidate[] };
 
@@ -54,6 +58,22 @@ function blockingIssue(
     rawSnippet,
     importedPreview: null,
   };
+}
+
+const SHEET_SNIPPET_ROW_LIMIT = 5;
+const SHEET_SNIPPET_CHAR_LIMIT = 300;
+
+/**
+ * A readable sample of an unimportable sheet, retained on its issue so the
+ * content is inspectable rather than merely counted.
+ */
+function firstNonBlankRows(rows: string[][]): string {
+  return rows
+    .filter((row) => row.some((cell) => cell.toString().trim().length > 0))
+    .slice(0, SHEET_SNIPPET_ROW_LIMIT)
+    .map((row) => row.join("\t"))
+    .join("\n")
+    .slice(0, SHEET_SNIPPET_CHAR_LIMIT);
 }
 
 /**
@@ -104,21 +124,43 @@ export function parseSpectoraWorkbook(
     return { ok: false, issues: [blockingIssue("The workbook has no sheets.", "", input.filename)] };
   }
 
-  let matchedSheet: string | null = null;
-  let extracted: ReturnType<typeof extractSheet> = null;
+  // EVERY sheet is examined, not just the first one that parses.
+  //
+  // This used to stop at the first recognizable sheet, which meant a
+  // multi-sheet export had its remaining sheets discarded with no issue
+  // raised and no source rows counted — so the integrity engine saw nothing
+  // missing and reported "verified" over a dropped sheet. A silent drop that
+  // also defeats the check designed to catch silent drops is the single worst
+  // failure this product can have.
+  const extractedSheets: NonNullable<ReturnType<typeof extractSheet>>[] = [];
+  const sheetIssues: ImportIssueCandidate[] = [];
+
   for (const sheetName of workbook.sheetNames) {
-    const attempt = extractSheet(sheetName, workbook.sheets[sheetName]);
+    const sheetRows = workbook.sheets[sheetName];
+    const attempt = extractSheet(sheetName, sheetRows);
     if (attempt) {
-      extracted = attempt;
-      matchedSheet = sheetName;
-      break;
+      extractedSheets.push(attempt);
+      continue;
+    }
+    // No recognizable header. If it holds content, say so rather than
+    // discarding it; a blank or decorative sheet is genuinely nothing to lose.
+    if (sheetHasContent(sheetRows)) {
+      sheetIssues.push({
+        category: "unrecognized_row",
+        severity: "warning",
+        sourceRef: { sheet: sheetName, rowNumber: 0 },
+        explanation: `Sheet "${sheetName}" contains content but no recognizable section/item/comment header row, so none of it could be imported.`,
+        rawSnippet: firstNonBlankRows(sheetRows),
+        importedPreview: null,
+      });
     }
   }
 
-  if (!extracted || !matchedSheet) {
+  if (extractedSheets.length === 0) {
     return {
       ok: false,
       issues: [
+        ...sheetIssues,
         blockingIssue(
           "None of the sheets in this workbook contain a recognizable section/item/comment header row.",
           workbook.sheetNames[0],
@@ -128,14 +170,37 @@ export function parseSpectoraWorkbook(
     };
   }
 
-  const { rows: normalizedRows, issues: normalizeIssues } = normalizeRows(extracted.rows);
-  const { sections, issues: hierarchyIssues } = buildHierarchy(normalizedRows, {
-    generateId: input.generateId,
+  // Hierarchy is built per sheet, then concatenated. Building across a sheet
+  // boundary would let a section at the end of one sheet absorb rows from the
+  // start of the next, which no export format implies.
+  const sections: CanonicalSection[] = [];
+  const normalizeIssues: ImportIssueCandidate[] = [];
+  const hierarchyIssues: ImportIssueCandidate[] = [];
+  const sourceRowRecords: SourceRowRecord[] = [];
+  const normalizationEvents: NormalizationEvent[] = [];
+
+  for (const sheet of extractedSheets) {
+    const normalized = normalizeRows(sheet.rows);
+    normalizeIssues.push(...normalized.issues);
+
+    const built = buildHierarchy(normalized.rows, { generateId: input.generateId });
+    hierarchyIssues.push(...built.issues);
+    sections.push(...built.sections);
+    normalizationEvents.push(...built.normalizationEvents);
+
+    for (const row of sheet.rows) {
+      if (isMeaningfulRow(row)) sourceRowRecords.push({ sourceRef: row.sourceRef });
+    }
+  }
+
+  // `position` is assigned per-sheet by buildHierarchy, so renumber across the
+  // merged set to keep it a globally meaningful ordering (requirement 2).
+  sections.forEach((section, index) => {
+    section.position = index;
   });
-  const { name, source } = deriveTemplateName(input.filename, matchedSheet);
-  const sourceRowRecords: SourceRowRecord[] = extracted.rows
-    .filter(isMeaningfulRow)
-    .map((row) => ({ sourceRef: row.sourceRef }));
+
+  const { name, source } = deriveTemplateName(input.filename, extractedSheets[0].sheet);
+  const matchedSheet = extractedSheets[0].sheet;
 
   const templateCandidate: CanonicalTemplate = {
     name,
@@ -148,7 +213,7 @@ export function parseSpectoraWorkbook(
     sections,
   };
 
-  const issues = [...normalizeIssues, ...hierarchyIssues];
+  const issues = [...sheetIssues, ...normalizeIssues, ...hierarchyIssues];
   const validation = validateCanonicalTemplate(templateCandidate);
 
   if (!validation.success) {
@@ -165,5 +230,5 @@ export function parseSpectoraWorkbook(
     };
   }
 
-  return { ok: true, template: validation.data, issues, sourceRowRecords };
+  return { ok: true, template: validation.data, issues, sourceRowRecords, normalizationEvents };
 }

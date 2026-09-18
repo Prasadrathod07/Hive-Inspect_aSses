@@ -56,7 +56,7 @@ describe("parseSpectoraWorkbook — synthetic fixture (happy path + flagged issu
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const shingles = result.template.sections[0].items[0];
-    expect(shingles.comments[0].safeHtml).toContain("<b>good</b>");
+    expect(shingles.comments[0].safeHtml).toContain("<strong>good</strong>");
     expect(shingles.comments[0].plainText).toBe("Shingles are in good condition overall.");
   });
 
@@ -252,8 +252,15 @@ describe("parseSpectoraWorkbook — failure cases", () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.issues[0].category).toBe("malformed_workbook");
-    expect(result.issues[0].severity).toBe("blocking");
+
+    const blocking = result.issues.find((issue) => issue.severity === "blocking");
+    expect(blocking?.category).toBe("malformed_workbook");
+
+    // The unreadable sheet's content is also reported rather than merely
+    // being absent from the result.
+    const sheetIssue = result.issues.find((issue) => issue.category === "unrecognized_row");
+    expect(sheetIssue?.explanation).toContain("no recognizable section/item/comment header row");
+    expect(sheetIssue?.rawSnippet).toContain("Foo");
   });
 
   it("fails cleanly on an empty file, via file validation, before ever attempting to parse", () => {

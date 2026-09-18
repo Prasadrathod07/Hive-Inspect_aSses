@@ -32,7 +32,7 @@
               {
                 "id": "synthetic-2",
                 "plainText": "Shingles are in good condition overall.",
-                "safeHtml": "<p>Shingles are in <b>good</b> condition overall.</p>",
+                "safeHtml": "<p>Shingles are in <strong>good</strong> condition overall.</p>",
                 "position": 0,
                 "sourceRef": {
                   "sheet": "Sheet1",
@@ -53,7 +53,7 @@
               {
                 "id": "synthetic-4",
                 "plainText": "Minor debris noted; recommend cleaning. See manufacturer guidance.",
-                "safeHtml": "Minor <i>debris</i> noted;<br />recommend cleaning. See <a href=\"https://example.com/gutter-guide\" rel=\"noopener noreferrer\" target=\"_blank\">manufacturer guidance</a>.",
+                "safeHtml": "Minor <em>debris</em> noted;<br />recommend cleaning. See <a href=\"https://example.com/gutter-guide\" rel=\"noopener noreferrer\" target=\"_blank\">manufacturer guidance</a>.",
                 "position": 0,
                 "sourceRef": {
                   "sheet": "Sheet1",
@@ -260,6 +260,41 @@
         "sheet": "Sheet1",
         "rowNumber": 11
       }
+    }
+  ],
+  "normalizationEvents": [
+    {
+      "type": "formatting_normalized",
+      "description": "Normalized formatting to the editor's canonical tags (b → strong, i → em).",
+      "beforeHash": "e13154c53031f133bdd2a5a4c3866641cb7c0ea9ca4de2ddd6ac4f39134e36eb",
+      "afterHash": "6143b548f808b6c0b559c5daaa6bf3ff01037bf5723a5bee0f54f790fea2bddd",
+      "sourceRef": {
+        "sheet": "Sheet1",
+        "rowNumber": 3
+      },
+      "automatic": true
+    },
+    {
+      "type": "formatting_normalized",
+      "description": "Normalized formatting to the editor's canonical tags (b → strong, i → em).",
+      "beforeHash": "b8a84947cf1cd0f9d518bd5630719e5c25a84162fcb7c71655e7331e2616718d",
+      "afterHash": "01e3dfd45a795b070090b6854424c4cead240ad74dda347292445a7391ca6b78",
+      "sourceRef": {
+        "sheet": "Sheet1",
+        "rowNumber": 4
+      },
+      "automatic": true
+    },
+    {
+      "type": "safe_link_normalized",
+      "description": "Enforced rel=\"noopener noreferrer\" and target=\"_blank\" on a safe link; text and destination unchanged.",
+      "beforeHash": "b8a84947cf1cd0f9d518bd5630719e5c25a84162fcb7c71655e7331e2616718d",
+      "afterHash": "01e3dfd45a795b070090b6854424c4cead240ad74dda347292445a7391ca6b78",
+      "sourceRef": {
+        "sheet": "Sheet1",
+        "rowNumber": 4
+      },
+      "automatic": true
     }
   ]
 }

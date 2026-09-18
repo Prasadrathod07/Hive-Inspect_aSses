@@ -90,6 +90,46 @@ describe("buildHierarchy", () => {
     expect(new Set(ids).size).toBe(3);
   });
 
+  it("collects normalization events with the originating row's sourceRef attached, and raises no issue for them", () => {
+    const { issues, normalizationEvents } = buildHierarchy([
+      row({ rowNumber: 2, section: "Roof", item: "Shingles", commentRawHtml: "<div>Looks fine.</div>" }),
+    ]);
+
+    expect(issues).toHaveLength(0);
+    expect(normalizationEvents.length).toBeGreaterThan(0);
+    expect(normalizationEvents[0].sourceRef).toEqual({ sheet: "Sheet1", rowNumber: 2 });
+    expect(normalizationEvents[0].automatic).toBe(true);
+  });
+
+  it("raises a recoverable_formatting issue (Level B) for a wrapper with an attribute, with a proposed fix attached", () => {
+    const { sections, issues } = buildHierarchy([
+      row({
+        rowNumber: 2,
+        section: "Roof",
+        item: "Shingles",
+        commentRawHtml: '<div class="custom-wrapper">Roof condition appears good.</div>',
+      }),
+    ]);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0].category).toBe("recoverable_formatting");
+    expect(issues[0].fixSafelyAvailable).toBe(true);
+    expect(issues[0].proposedPlainText).toBe("Roof condition appears good.");
+    // Not applied yet: the persisted comment still has no safe HTML.
+    expect(sections[0].items[0].comments[0].safeHtml).toBeNull();
+    expect(sections[0].items[0].comments[0].plainText).toBe("Roof condition appears good.");
+  });
+
+  it("still raises unsupported_formatting (Level C) for genuinely unsupported markup, never offering a fix", () => {
+    const { issues } = buildHierarchy([
+      row({ rowNumber: 2, section: "Roof", item: "Shingles", commentRawHtml: "<table><tr><td>A</td></tr></table>" }),
+    ]);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0].category).toBe("unsupported_formatting");
+    expect(issues[0].fixSafelyAvailable).toBeFalsy();
+  });
+
   it("produces fully deterministic, reproducible ids when a generator is injected", () => {
     const rows: NormalizedRow[] = [
       row({ rowNumber: 2, section: "A", item: "A1", commentRawHtml: "x" }),

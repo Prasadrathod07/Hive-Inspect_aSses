@@ -28,7 +28,17 @@ export interface ExtractedSheet {
 const ROLE_KEYWORDS: Record<ColumnRole, string[]> = {
   section: ["section", "area", "category"],
   item: ["item", "component"],
-  comment: ["comment", "narrative", "limitation", "finding", "description", "text", "deficiency", "observation"],
+  comment: [
+    "comment",
+    "narrative",
+    "limitation",
+    "finding",
+    "description",
+    "text",
+    "deficiency",
+    "observation",
+    "note",
+  ],
 };
 
 const HEADER_SCAN_LIMIT = 15;
@@ -49,24 +59,90 @@ function normalizeHeaderCell(cell: string): string {
     .trim();
 }
 
+/**
+ * Comment-content keywords that signal genuine free-text narrative, as
+ * opposed to the bare word "comment" — which a real export can also use for
+ * an identifying LABEL column (observed: a real Spectora template export
+ * pairs a short "Comment Name" per boilerplate entry with a separate
+ * "Comment Text" column holding the actual HTML narrative). "comment" alone
+ * is deliberately excluded here so a "*Name" column doesn't outrank the
+ * column that actually holds the content.
+ */
+const STRONG_COMMENT_KEYWORDS = ROLE_KEYWORDS.comment.filter((keyword) => keyword !== "comment");
+
+/** Matches a header ending in the word "name" — an identifying label, not narrative content (e.g. "Comment Name", "Section Name"). */
+const NAME_LABEL_PATTERN = /(^|\s)name(\s|$)/;
+
+/**
+ * Maps columns to roles by keyword.
+ *
+ * Three rules, all load-bearing:
+ *   - Section/item: the first column matching a role wins that role.
+ *   - A column can hold only ONE role. Without this, a header like
+ *     "Item Text" matches `item` ("item") *and* `comment` ("text"), and the
+ *     same cell gets imported twice — once as the item's name and again as a
+ *     comment under it. Section/item are detected before comment, so the
+ *     narrower match claims the column first.
+ *   - Comment: among all NOT-YET-CLAIMED columns matching a comment keyword,
+ *     the one with a strong content keyword (narrative/finding/description/
+ *     text/deficiency/observation/note/limitation) wins over one that only
+ *     matches the bare word "comment" while also looking like a "*Name"
+ *     label column. Without this, "Comment Name" (a short boilerplate label,
+ *     always present) would win the comment role over "Comment Text" (the
+ *     actual narrative, often the only place real content lives) simply for
+ *     appearing first — silently importing labels as if they were customer
+ *     narrative and never reading the real text at all.
+ */
 function detectColumnRoles(headerRow: string[]): Partial<Record<ColumnRole, number>> {
   const roles: Partial<Record<ColumnRole, number>> = {};
+  const claimedColumns = new Set<number>();
+
   headerRow.forEach((cell, index) => {
     const normalized = normalizeHeaderCell(cell);
     if (!normalized) return;
-    for (const role of Object.keys(ROLE_KEYWORDS) as ColumnRole[]) {
-      if (role in roles) continue; // first matching column wins
+    for (const role of ["section", "item"] as ColumnRole[]) {
+      if (role in roles) continue; // this role already has a column
+      if (claimedColumns.has(index)) break; // this column already has a role
       if (ROLE_KEYWORDS[role].some((keyword) => normalized.includes(keyword))) {
         roles[role] = index;
+        claimedColumns.add(index);
       }
     }
   });
+
+  let bestCommentIndex: number | undefined;
+  let bestCommentPriority = -1;
+  headerRow.forEach((cell, index) => {
+    if (claimedColumns.has(index)) return;
+    const normalized = normalizeHeaderCell(cell);
+    if (!normalized) return;
+    if (!ROLE_KEYWORDS.comment.some((keyword) => normalized.includes(keyword))) return;
+
+    const isStrongContent = STRONG_COMMENT_KEYWORDS.some((keyword) => normalized.includes(keyword));
+    const isNameLabel = NAME_LABEL_PATTERN.test(normalized);
+    const priority = isStrongContent ? 2 : isNameLabel ? 0 : 1;
+
+    if (priority > bestCommentPriority) {
+      bestCommentPriority = priority;
+      bestCommentIndex = index;
+    }
+  });
+  if (bestCommentIndex !== undefined) {
+    roles.comment = bestCommentIndex;
+    claimedColumns.add(bestCommentIndex);
+  }
+
   return roles;
 }
 
 /** A header row must identify at least two of the three roles to be trusted. */
 function isPlausibleHeader(roles: Partial<Record<ColumnRole, number>>): boolean {
   return Object.keys(roles).length >= 2;
+}
+
+/** True if any cell anywhere in the sheet has non-blank content. */
+export function sheetHasContent(rows: string[][]): boolean {
+  return rows.some((row) => row.some((cell) => cell.toString().trim().length > 0));
 }
 
 export function extractSheet(sheet: string, rows: string[][]): ExtractedSheet | null {

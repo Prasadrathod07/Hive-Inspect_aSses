@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { NormalizedRow } from "./normalize";
 import { processRichContent } from "./rich-content";
-import type { CanonicalSection, CanonicalItem, ImportIssueCandidate } from "./types";
+import type { CanonicalSection, CanonicalItem, ImportIssueCandidate, NormalizationEvent, SourceRef } from "./types";
 
 const RAW_SNIPPET_LIMIT = 300;
 
@@ -23,16 +23,26 @@ export interface BuildHierarchyOptions {
   generateId?: () => string;
 }
 
+function toNormalizationEvent(
+  input: { type: NormalizationEvent["type"]; description: string; beforeHash: string; afterHash: string },
+  sourceRef: SourceRef
+): NormalizationEvent {
+  return { ...input, sourceRef, automatic: true };
+}
+
 export function buildHierarchy(
   rows: NormalizedRow[],
   options: BuildHierarchyOptions = {}
 ): {
   sections: CanonicalSection[];
   issues: ImportIssueCandidate[];
+  /** Level A audit trail (docs/architecture.md §5a) — never surfaced as a warning. */
+  normalizationEvents: NormalizationEvent[];
 } {
   const generateId = options.generateId ?? randomUUID;
   const sections: CanonicalSection[] = [];
   const issues: ImportIssueCandidate[] = [];
+  const normalizationEvents: NormalizationEvent[] = [];
 
   let currentSection: CanonicalSection | null = null;
   let currentItem: CanonicalItem | null = null;
@@ -89,10 +99,30 @@ export function buildHierarchy(
         continue;
       }
 
-      const { safeHtml, plainText, links, disallowedTags, droppedUnsafeLink, hadChangedLink } =
+      const { safeHtml, plainText, links, disallowedTags, droppedUnsafeLink, hadChangedLink, normalizationEvents: fieldEvents, fixSafely } =
         processRichContent(row.commentRawHtml);
 
-      if (disallowedTags.length > 0) {
+      for (const event of fieldEvents) {
+        normalizationEvents.push(toNormalizationEvent(event, row.sourceRef));
+      }
+
+      if (fixSafely) {
+        // Level B: a deterministic, PROVEN text-preserving fix exists but is
+        // never applied here — only a reviewer's explicit "Fix Safely"
+        // confirms it (src/lib/persistence/issue-fix-actions.ts).
+        issues.push({
+          category: "recoverable_formatting",
+          severity: "info",
+          sourceRef: row.sourceRef,
+          explanation:
+            "This markup is not directly supported by the editor, but its content can be converted safely without changing wording or meaning.",
+          rawSnippet: row.commentRawHtml.slice(0, RAW_SNIPPET_LIMIT),
+          importedPreview: plainText.slice(0, RAW_SNIPPET_LIMIT),
+          fixSafelyAvailable: true,
+          proposedPlainText: fixSafely.proposedPlainText,
+          proposedSafeHtml: fixSafely.proposedSafeHtml,
+        });
+      } else if (disallowedTags.length > 0) {
         issues.push({
           category: "unsupported_formatting",
           severity: "info",
@@ -137,5 +167,5 @@ export function buildHierarchy(
     }
   }
 
-  return { sections, issues };
+  return { sections, issues, normalizationEvents };
 }

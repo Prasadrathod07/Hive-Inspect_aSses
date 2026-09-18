@@ -92,8 +92,23 @@ export type CanonicalTemplate = z.infer<typeof CanonicalTemplateSchema>;
 export const ImportIssueCategorySchema = z.enum([
   /** Row content didn't match the recognized section/item/comment columns at all. */
   "unrecognized_row",
-  /** Rich-text markup outside the sanitizer allowlist was stripped; surrounding text kept. */
+  /**
+   * Rich-text markup outside the sanitizer allowlist was stripped; surrounding
+   * text kept. Level C (manual review) — no deterministic fix is offered,
+   * because the markup removed could carry meaning we can't safely infer
+   * (a table, an image, an unknown widget, or a wrapper with attributes we
+   * can't prove are cosmetic).
+   */
   "unsupported_formatting",
+  /**
+   * Level B ("Fix Safely" — docs/architecture.md §5a). Content that could not
+   * be silently normalized (Level A) but has a deterministic, PROVEN
+   * text-preserving replacement available. Never auto-applied; a reviewer
+   * confirms via a before/after preview on the Issue Review page. Distinct
+   * from `unsupported_formatting`, which has no such proof and stays a
+   * manual-review-only case.
+   */
+  "recoverable_formatting",
   /** A link had a missing/unsafe scheme and was dropped from the rich text. */
   "unsupported_link",
   /** A comment/item appeared before its required parent existed in the row order. */
@@ -123,8 +138,56 @@ export const ImportIssueCandidateSchema = z.object({
   rawSnippet: z.string(),
   /** What (if anything) was actually imported despite the issue; null if nothing was. */
   importedPreview: z.string().nullable(),
+  /**
+   * Level B only (`category: "recoverable_formatting"`). True when a
+   * deterministic transform exists whose plain text is PROVEN — by exact
+   * whitespace-normalized comparison at the time this candidate was created,
+   * see `src/lib/import/rich-content.ts` — to preserve every word of the raw
+   * source. Absent/false for every other category; never auto-applied.
+   * Optional (not `.default()`) so every other issue-construction site in
+   * the codebase, none of which is Level B, is unaffected by this field's
+   * addition.
+   */
+  fixSafelyAvailable: z.boolean().optional(),
+  /** The proposed replacement plain text, only set when fixSafelyAvailable is true. */
+  proposedPlainText: z.string().nullable().optional(),
+  /** The proposed replacement rich HTML, only set when fixSafelyAvailable is true. */
+  proposedSafeHtml: z.string().nullable().optional(),
 });
 export type ImportIssueCandidate = z.infer<typeof ImportIssueCandidateSchema>;
+
+/**
+ * Level A — silent, automatic, meaning-preserving normalization
+ * (docs/architecture.md §5a "Safe Normalization Policy"). Never shown to the
+ * customer as a warning; recorded purely for internal traceability so
+ * "silent" never means "untraceable." One event per detected transform per
+ * comment field — not one per character/tag — so this stays a proportionate
+ * audit trail, not noise.
+ */
+export const NormalizationEventTypeSchema = z.enum([
+  "whitespace_trimmed",
+  "duplicate_whitespace_collapsed",
+  "empty_tag_removed",
+  "harmless_wrapper_removed",
+  "line_break_normalized",
+  "html_entity_decoded",
+  "formatting_normalized",
+  "safe_link_normalized",
+]);
+export type NormalizationEventType = z.infer<typeof NormalizationEventTypeSchema>;
+
+export const NormalizationEventSchema = z.object({
+  type: NormalizationEventTypeSchema,
+  sourceRef: SourceRefSchema,
+  /** SHA-256 of the raw source field before this normalization pass. */
+  beforeHash: z.string(),
+  /** SHA-256 of the imported plain text + safe HTML after normalization. */
+  afterHash: z.string(),
+  description: z.string(),
+  /** Always true — a human-applied "Fix Safely" resolution is a separate, explicit action, never one of these. */
+  automatic: z.literal(true),
+});
+export type NormalizationEvent = z.infer<typeof NormalizationEventSchema>;
 
 /**
  * One entry per "meaningful" source row (docs/spectora-format.md assumption

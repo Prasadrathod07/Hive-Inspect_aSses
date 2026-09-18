@@ -6,7 +6,7 @@ describe("processRichContent", () => {
     const result = processRichContent("<p>Shingles are in <b>good</b> condition.</p>");
     expect(result.disallowedTags).toEqual([]);
     expect(result.droppedUnsafeLink).toBe(false);
-    expect(result.safeHtml).toContain("<b>good</b>");
+    expect(result.safeHtml).toContain("<strong>good</strong>");
     expect(result.plainText).toBe("Shingles are in good condition.");
   });
 
@@ -31,6 +31,18 @@ describe("processRichContent", () => {
     expect(result.links).toHaveLength(0);
     expect(result.plainText).toBe("See spec: click here");
     expect(result.safeHtml).not.toContain("javascript:");
+  });
+
+  it("decodes a literal ampersand to plain text, not HTML-escaped '&amp;' — found against a real Spectora export", () => {
+    const result = processRichContent("Flashing & trim pieces were improperly installed.");
+    expect(result.plainText).toBe("Flashing & trim pieces were improperly installed.");
+    expect(result.plainText).not.toContain("&amp;");
+  });
+
+  it("decodes literal < and > to plain text the same way", () => {
+    const result = processRichContent("Clearance was 5 < 10 inches, code requires > 12.");
+    expect(result.plainText).toContain("5 < 10");
+    expect(result.plainText).toContain("> 12");
   });
 
   it("preserves plain text with no markup at all", () => {
@@ -75,5 +87,139 @@ describe("processRichContent", () => {
     );
     expect(result.hadChangedLink).toBe(false);
     expect(result.links[0]?.href).toContain("a=1");
+  });
+});
+
+describe("processRichContent — Level A: silent safe normalization", () => {
+  it("silently unwraps a bare <div> wrapper — no issue, content fully preserved", () => {
+    const result = processRichContent("<div>Roof condition appears good.</div>");
+    expect(result.disallowedTags).toEqual([]);
+    expect(result.fixSafely).toBeNull();
+    expect(result.safeHtml).not.toContain("<div>");
+    expect(result.plainText).toBe("Roof condition appears good.");
+  });
+
+  it("silently unwraps a bare <span> wrapper the same way", () => {
+    const result = processRichContent("<span>Fine as-is.</span>");
+    expect(result.disallowedTags).toEqual([]);
+    expect(result.fixSafely).toBeNull();
+    expect(result.plainText).toBe("Fine as-is.");
+  });
+
+  it("records a harmless_wrapper_removed normalization event for a bare wrapper, never an issue", () => {
+    const result = processRichContent("<div>No problem here.</div>");
+    const types = result.normalizationEvents.map((e) => e.type);
+    expect(types).toContain("harmless_wrapper_removed");
+  });
+
+  it("records whitespace_trimmed for leading/trailing whitespace", () => {
+    const result = processRichContent("  Trailing space text.  ");
+    expect(result.normalizationEvents.map((e) => e.type)).toContain("whitespace_trimmed");
+    expect(result.plainText).toBe("Trailing space text.");
+  });
+
+  it("records duplicate_whitespace_collapsed for repeated internal spaces", () => {
+    const result = processRichContent("Roof   condition   good.");
+    expect(result.normalizationEvents.map((e) => e.type)).toContain("duplicate_whitespace_collapsed");
+    expect(result.plainText).toBe("Roof condition good.");
+  });
+
+  it("records empty_tag_removed and strips a genuinely empty tag", () => {
+    const result = processRichContent("<p>Real content.</p><p></p>");
+    expect(result.normalizationEvents.map((e) => e.type)).toContain("empty_tag_removed");
+    expect(result.safeHtml).not.toContain("<p></p>");
+    expect(result.plainText).toBe("Real content.");
+  });
+
+  it("never removes <br> as though it were an empty tag", () => {
+    const result = processRichContent("Line one.<br>Line two.");
+    expect(result.safeHtml).toContain("<br");
+  });
+
+  it("records html_entity_decoded and decodes &nbsp; into a normal space", () => {
+    const result = processRichContent("<p>Roof&nbsp;&nbsp;condition</p>");
+    expect(result.normalizationEvents.map((e) => e.type)).toContain("html_entity_decoded");
+    expect(result.plainText).toBe("Roof condition");
+  });
+
+  it("records formatting_normalized and rewrites b/i to strong/em", () => {
+    const result = processRichContent("<b>Bold</b> and <i>italic</i>.");
+    expect(result.normalizationEvents.map((e) => e.type)).toContain("formatting_normalized");
+    expect(result.safeHtml).toContain("<strong>Bold</strong>");
+    expect(result.safeHtml).toContain("<em>italic</em>");
+  });
+
+  it("records safe_link_normalized for an ordinary safe link", () => {
+    const result = processRichContent('<a href="https://example.com">docs</a>');
+    expect(result.normalizationEvents.map((e) => e.type)).toContain("safe_link_normalized");
+  });
+
+  it("never emits a normalization event for a field with no normalization to do", () => {
+    const result = processRichContent("Plain text, nothing to change.");
+    expect(result.normalizationEvents).toEqual([]);
+  });
+});
+
+describe("processRichContent — Level B: recoverable content ('Fix Safely')", () => {
+  it("offers a Fix Safely proposal for a div wrapper WITH an attribute, and withholds safeHtml until applied", () => {
+    const result = processRichContent('<div class="custom-wrapper">Roof   condition<br>appears good.</div>');
+    expect(result.fixSafely).not.toBeNull();
+    expect(result.safeHtml).toBe("");
+    expect(result.disallowedTags).toEqual([]);
+  });
+
+  it("the Fix Safely proposal's plain text exactly matches what plainText already contains — proven, not guessed", () => {
+    const result = processRichContent('<div class="custom-wrapper">Roof condition appears good.</div>');
+    expect(result.fixSafely?.proposedPlainText).toBe(result.plainText);
+    expect(result.plainText).toBe("Roof condition appears good.");
+  });
+
+  it("the Fix Safely proposal keeps nested allowed formatting", () => {
+    const result = processRichContent('<div class="note">See <strong>attached</strong> report.</div>');
+    expect(result.fixSafely?.proposedSafeHtml).toContain("<strong>attached</strong>");
+  });
+
+  it("does NOT offer Fix Safely when a genuinely unsupported tag is mixed in with the wrapper", () => {
+    const result = processRichContent('<div class="wrap"><table><tr><td>A</td></tr></table></div>');
+    expect(result.fixSafely).toBeNull();
+    expect(result.disallowedTags).toEqual(expect.arrayContaining(["table"]));
+  });
+
+  it("plain text is never withheld even while a fix is pending", () => {
+    const result = processRichContent('<span style="color:red">Important finding.</span>');
+    expect(result.plainText).toBe("Important finding.");
+    expect(result.fixSafely).not.toBeNull();
+  });
+});
+
+describe("processRichContent — Level C: still requires manual review, never silently normalized", () => {
+  it("still flags <table> as unsupported with no Fix Safely offered", () => {
+    const result = processRichContent("<table><tr><td>A</td></tr></table>");
+    expect(result.disallowedTags).toEqual(expect.arrayContaining(["table"]));
+    expect(result.fixSafely).toBeNull();
+  });
+
+  it("still flags <img> as unsupported with no Fix Safely offered", () => {
+    const result = processRichContent('<img src="https://example.com/a.jpg">');
+    expect(result.disallowedTags).toContain("img");
+    expect(result.fixSafely).toBeNull();
+  });
+
+  it("still flags <iframe>/embeds as unsupported with no Fix Safely offered", () => {
+    const result = processRichContent('<iframe src="https://example.com/embed"></iframe>');
+    expect(result.disallowedTags).toContain("iframe");
+    expect(result.fixSafely).toBeNull();
+  });
+
+  it("still flags an unknown/unrecognized tag as unsupported", () => {
+    const result = processRichContent("<marquee>data</marquee>");
+    expect(result.disallowedTags).toContain("marquee");
+    expect(result.fixSafely).toBeNull();
+  });
+
+  it("an unsafe link (javascript:) is still dropped, never silently normalized or offered as a fix", () => {
+    const result = processRichContent('<a href="javascript:alert(1)">click</a>');
+    expect(result.droppedUnsafeLink).toBe(true);
+    expect(result.fixSafely).toBeNull();
   });
 });
