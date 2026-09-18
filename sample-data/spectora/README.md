@@ -1,60 +1,49 @@
-# Spectora Sample Export — Missing
+# Spectora Sample Export
 
-**No real Spectora export exists in this repository yet.** A full search of the
-repo (`find . -iname "*.xlsx" -o -iname "*.xls"`) at the time this file was
-last checked found zero spreadsheet files anywhere except the synthetic
-engineering fixture under `tests/fixtures/`.
+`Residential Template-2026-09-15.xls` in this directory is the real Spectora
+"Export to spreadsheet → Export HTML Text" export used for this assessment
+submission (assessment requirements 15 and 16). It is committed unmodified —
+same bytes, same filename as exported.
 
-Assessment requirements 15 and 16 require the repo to include the actual
-Spectora "Export to spreadsheet → Export HTML Text" file used for this
-submission, and the deployed app to already have it imported and explorable.
-Neither is possible without this file. **This is a BLOCKER for final
-submission**, not a cosmetic gap.
-
-```
-sample-data/spectora/<real-export-filename>.xlsx
-```
-
-## What must happen before submission
-
-1. Obtain the real Spectora "Export to spreadsheet → Export HTML Text" export
-   for the assessment's inspection template.
-2. Place it in this directory, **unmodified** — same bytes, same filename as
-   exported. Do not open and re-save it, do not rename its internal sheet,
-   do not strip anything from it. If it needs to be trimmed for size or
-   privacy, that trimming must happen *before* export from Spectora, not by
-   hand-editing the exported file afterward — otherwise this file is no
-   longer evidence of what the importer actually handles.
-3. Fill in every field below in this README.
-4. Run `npm run seed` (see `scripts/seed-demo.ts`). It imports this file
-   through the exact same deterministic parser and atomic-write pipeline
-   `POST /api/import` uses — never a hand-built database row — and is safe
-   to run more than once (idempotent by content hash).
-5. Update `docs/requirements-matrix.md` rows 15 and 16 from `BLOCKED` to
-   `DONE`.
-6. Do not commit any other spreadsheet as a stand-in for this one — see
-   "Synthetic fixtures" below.
-
-## Required disclosure (fill in before submission)
+## Required disclosure
 
 | Field | Value |
 |---|---|
-| **Template name** | _(the inspection template's name, as it appears in Spectora)_ |
-| **Spectora source** | _(which Spectora account/organization this was exported from — company name is fine, no credentials)_ |
-| **Export method** | Spectora → *Export to spreadsheet* → *Export HTML Text* _(confirm this exact path was used; if Spectora's UI wording differs, note the actual steps taken)_ |
-| **Contains real customer information?** | _(state explicitly: **No** — confirm the template itself, not a completed inspection report, was exported, and that no client name, property address, or photo of a real property is present anywhere in the file)_ |
+| **Template name** | Residential Template |
+| **Spectora source** | A personal Spectora trial account created for this assessment |
+| **Export method** | Spectora → *Export to spreadsheet* → *Export HTML Text* |
+| **Contains real customer information?** | **No.** This is the template's own section/item/comment structure, not a completed inspection report — no client name, property address, or photo of a real property appears anywhere in the file. |
 
-The last row is not optional. A Spectora *template* export should contain
-only section/item/comment structure — no client data — but that must be
-**verified by opening the file**, not assumed from the export type, before
-it's committed to a public repository.
+## Known parser findings from this file
+
+Feeding this real export through the importer (`src/lib/import/`) found and
+fixed two real defects that no synthetic fixture had ever exposed:
+
+1. **Column-role detection picked the wrong column.** This export's header
+   pairs a short `Comment Name` label per boilerplate entry (e.g.
+   "Cracking - Major") with a separate `Comment Text` column holding the
+   actual HTML narrative. The parser used to let the first bare match of
+   "comment" win, so `Comment Name` was imported as if it were the
+   customer's actual comment text, and the real narrative in `Comment Text`
+   was never read at all. Fixed in `src/lib/import/extract-rows.ts` — a
+   `*Name`-suffixed column no longer outranks a stronger narrative-content
+   column (`text`/`narrative`/`description`/etc.) for the comment role. See
+   `docs/decision-log.md`.
+2. **A literal `&` in plain text came out as `&amp;`.** `sanitize-html`'s
+   tag-stripping mode still HTML-escapes text content, so any comment
+   containing a bare ampersand (e.g. "Flashing & trim") was silently
+   corrupted on the way into `plain_text`. Fixed in
+   `src/lib/import/rich-content.ts`.
+
+Both are regression-tested (`src/lib/import/parser-generality.test.ts`,
+`src/lib/import/rich-content.test.ts`).
 
 ## Synthetic fixtures
 
-Until the real export is available, structural development and testing (e.g.
-proving the parser isn't hard-coded to a single file — requirement 10) uses
-hand-built synthetic `.xlsx` fixtures that mimic the Spectora HTML-text export
-structure. Any such fixture:
+Structural development and testing (e.g. proving the parser isn't
+hard-coded to a single file — requirement 10) also uses hand-built synthetic
+`.xlsx` fixtures that mimic the Spectora HTML-text export structure. Any such
+fixture:
 
 - Lives under `tests/fixtures/` (engineering test fixtures) — never directly
   in `sample-data/spectora/`, which is reserved for the real export.
@@ -65,9 +54,6 @@ structure. Any such fixture:
 `npm run seed -- --allow-synthetic` seeds the demo template from that
 synthetic fixture, under a template name that says "SYNTHETIC DEMO" wherever
 it's displayed in the app, purely so the demo mechanics (dashboard → report →
-editor → duplicate) can be exercised locally before the real file exists.
-**It does not satisfy requirements 15 or 16** — see
-`docs/requirements-matrix.md`.
-
-This directory currently contains no real export. This README exists so that
-its absence is a documented, visible fact rather than a silent gap.
+editor → duplicate) can be exercised locally. **It does not satisfy
+requirements 15 or 16** — use `npm run seed` (no flags) against the real file
+above for that.
