@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -14,6 +15,7 @@ import {
   FileSearch,
   ListChecks,
   DatabaseZap,
+  ListTodo,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/patterns/error-state";
@@ -29,6 +31,12 @@ interface State {
   fileError: string | null;
   uploadProgress: number;
   serverError: string | null;
+  /**
+   * A rejected import still records a traceable run, so the rows responsible
+   * can be inspected rather than guessed at. Null when the failure happened
+   * before anything could be recorded (e.g. the network never reached us).
+   */
+  failedRun: { importRunId: string; issueCount: number } | null;
   result: Extract<ImportResult, { success: true }> | null;
 }
 
@@ -38,6 +46,7 @@ const INITIAL_STATE: State = {
   fileError: null,
   uploadProgress: 0,
   serverError: null,
+  failedRun: null,
   result: null,
 };
 
@@ -146,12 +155,19 @@ export function ImportWorkspace() {
         toast.success("Template imported", { description: result.integritySummary });
         setTimeout(() => router.push(`/templates/${result.templateId}/import-report`), 900);
       } else {
-        setState((prev) => ({ ...prev, stage: "failed", serverError: result.error }));
+        setState((prev) => ({
+          ...prev,
+          stage: "failed",
+          serverError: result.error,
+          failedRun: result.importRunId
+            ? { importRunId: result.importRunId, issueCount: result.issueCount }
+            : null,
+        }));
         toast.error("Import failed");
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Something went wrong. Please try again.";
-      setState((prev) => ({ ...prev, stage: "failed", serverError: message }));
+      setState((prev) => ({ ...prev, stage: "failed", serverError: message, failedRun: null }));
       toast.error("Import failed");
     }
   }, [state.file, state.fileError, router]);
@@ -163,6 +179,17 @@ export function ImportWorkspace() {
         description={state.serverError ?? "Something went wrong. Please try again."}
         onRetry={reset}
         retryLabel="Choose a different file"
+        actions={
+          state.failedRun && state.failedRun.issueCount > 0 ? (
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/imports/${state.failedRun.importRunId}/issues`}>
+                <ListTodo className="size-4" aria-hidden="true" />
+                See the {state.failedRun.issueCount} row
+                {state.failedRun.issueCount === 1 ? "" : "s"} responsible
+              </Link>
+            </Button>
+          ) : null
+        }
       />
     );
   }
@@ -273,6 +300,7 @@ function Dropzone({
         ref={inputRef}
         type="file"
         accept=".xlsx,.xls"
+        aria-label="Choose a Spectora export file to import"
         className="sr-only"
         onChange={onInputChange}
         tabIndex={-1}
@@ -282,7 +310,9 @@ function Dropzone({
       </span>
       <div className="flex flex-col gap-1">
         <p className="text-sm font-medium text-text">Drag and drop your file here</p>
-        <p className="text-sm text-text-muted">or click to browse — .xlsx or .xls, up to 20MB</p>
+        <p className="text-sm text-text-muted">
+          or click to browse — .xlsx or .xls, up to {MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB
+        </p>
       </div>
     </div>
   );
@@ -315,6 +345,7 @@ function SelectedFilePanel({
         ref={inputRef}
         type="file"
         accept=".xlsx,.xls"
+        aria-label="Choose a different Spectora export file"
         className="sr-only"
         onChange={onInputChange}
         tabIndex={-1}
