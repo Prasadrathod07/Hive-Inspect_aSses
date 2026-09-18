@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Hexagon, Upload } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { CONTENT_WIDTH } from "./page-shell";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -20,7 +22,7 @@ export function AppHeader() {
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-surface/95 backdrop-blur supports-backdrop-filter:bg-surface/80">
-      <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-6 lg:px-8">
+      <div className={cn(CONTENT_WIDTH, "flex h-14 items-center justify-between")}>
         <div className="flex items-center gap-6">
           <Link
             href="/"
@@ -63,13 +65,16 @@ export function AppHeader() {
           </nav>
         </div>
 
-        <Link
-          href="/import"
-          className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-sm font-medium text-primary-foreground outline-none transition-all hover:bg-primary/90 focus-visible:ring-3 focus-visible:ring-ring/50"
-        >
-          <Upload className="size-4" aria-hidden="true" />
-          Import template
-        </Link>
+        {/* Omitted on /import itself — the page's own primary action already
+            is this, so repeating it in the header would be pure noise. */}
+        {isActive(pathname, "/import") ? null : (
+          <Button asChild>
+            <Link href="/import">
+              <Upload className="size-4" aria-hidden="true" />
+              Import template
+            </Link>
+          </Button>
+        )}
       </div>
     </header>
   );
