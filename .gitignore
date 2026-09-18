@@ -9,6 +9,9 @@ node_modules/
 out/
 build/
 dist/
+*.tsbuildinfo
+next-env.d.ts
+*.pem
 
 # Logs
 npm-debug.log*
@@ -29,3 +32,7 @@ test-results/
 
 # Vercel
 .vercel
+
+# Playwright
+blob-report/
+.playwright/

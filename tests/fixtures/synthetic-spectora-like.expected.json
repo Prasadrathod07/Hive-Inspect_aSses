@@ -1,0 +1,265 @@
+{
+  "ok": true,
+  "template": {
+    "name": "synthetic-spectora-like",
+    "sourceMetadata": {
+      "sourceFilename": "synthetic-spectora-like.xlsx",
+      "sheetNames": [
+        "Sheet1"
+      ],
+      "templateNameSource": "filename",
+      "importedAt": "2026-01-01T00:00:00.000Z"
+    },
+    "sections": [
+      {
+        "id": "synthetic-0",
+        "name": "Roof",
+        "position": 0,
+        "sourceRef": {
+          "sheet": "Sheet1",
+          "rowNumber": 3
+        },
+        "items": [
+          {
+            "id": "synthetic-1",
+            "name": "Shingles",
+            "position": 0,
+            "sourceRef": {
+              "sheet": "Sheet1",
+              "rowNumber": 3
+            },
+            "comments": [
+              {
+                "id": "synthetic-2",
+                "plainText": "Shingles are in good condition overall.",
+                "safeHtml": "<p>Shingles are in <b>good</b> condition overall.</p>",
+                "position": 0,
+                "sourceRef": {
+                  "sheet": "Sheet1",
+                  "rowNumber": 3
+                }
+              }
+            ]
+          },
+          {
+            "id": "synthetic-3",
+            "name": "Gutters",
+            "position": 1,
+            "sourceRef": {
+              "sheet": "Sheet1",
+              "rowNumber": 4
+            },
+            "comments": [
+              {
+                "id": "synthetic-4",
+                "plainText": "Minor debris noted; recommend cleaning. See manufacturer guidance.",
+                "safeHtml": "Minor <i>debris</i> noted;<br />recommend cleaning. See <a href=\"https://example.com/gutter-guide\" rel=\"noopener noreferrer\" target=\"_blank\">manufacturer guidance</a>.",
+                "position": 0,
+                "sourceRef": {
+                  "sheet": "Sheet1",
+                  "rowNumber": 4
+                },
+                "linkMetadata": [
+                  {
+                    "href": "https://example.com/gutter-guide",
+                    "text": "manufacturer guidance"
+                  }
+                ]
+              },
+              {
+                "id": "synthetic-5",
+                "plainText": "Additional note: Downspout partially detached Recommend resecuring",
+                "safeHtml": "Additional note: <ul><li>Downspout partially detached</li><li>Recommend resecuring</li></ul>",
+                "position": 1,
+                "sourceRef": {
+                  "sheet": "Sheet1",
+                  "rowNumber": 5
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "synthetic-6",
+        "name": "Plumbing",
+        "position": 1,
+        "sourceRef": {
+          "sheet": "Sheet1",
+          "rowNumber": 7
+        },
+        "items": [
+          {
+            "id": "synthetic-7",
+            "name": "Water Heater",
+            "position": 0,
+            "sourceRef": {
+              "sheet": "Sheet1",
+              "rowNumber": 7
+            },
+            "comments": [
+              {
+                "id": "synthetic-8",
+                "plainText": "Unit is functional. Recommend annual flushing.",
+                "safeHtml": "<p>Unit is functional.  Recommend annual flushing.</p>",
+                "position": 0,
+                "sourceRef": {
+                  "sheet": "Sheet1",
+                  "rowNumber": 7
+                }
+              },
+              {
+                "id": "synthetic-9",
+                "plainText": "See spec sheet: click here",
+                "safeHtml": "<p>See spec sheet: click here</p>",
+                "position": 1,
+                "sourceRef": {
+                  "sheet": "Sheet1",
+                  "rowNumber": 8
+                }
+              }
+            ]
+          },
+          {
+            "id": "synthetic-10",
+            "name": "Fixtures",
+            "position": 1,
+            "sourceRef": {
+              "sheet": "Sheet1",
+              "rowNumber": 9
+            },
+            "comments": []
+          }
+        ]
+      },
+      {
+        "id": "synthetic-11",
+        "name": "Electrical",
+        "position": 2,
+        "sourceRef": {
+          "sheet": "Sheet1",
+          "rowNumber": 10
+        },
+        "items": [
+          {
+            "id": "synthetic-12",
+            "name": "Panel",
+            "position": 0,
+            "sourceRef": {
+              "sheet": "Sheet1",
+              "rowNumber": 11
+            },
+            "comments": [
+              {
+                "id": "synthetic-13",
+                "plainText": "200A panel observed. Condition acceptable.",
+                "safeHtml": "<p>200A panel observed. Condition acceptable.</p>",
+                "position": 0,
+                "sourceRef": {
+                  "sheet": "Sheet1",
+                  "rowNumber": 11
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "issues": [
+    {
+      "category": "unrecognized_row",
+      "severity": "info",
+      "sourceRef": {
+        "sheet": "Sheet1",
+        "rowNumber": 9
+      },
+      "explanation": "This row has content in one or more columns outside the recognized section/item/comment columns; that extra content was not imported.",
+      "rawSnippet": "\tFixtures\t\t3",
+      "importedPreview": "Fixtures"
+    },
+    {
+      "category": "unsupported_formatting",
+      "severity": "info",
+      "sourceRef": {
+        "sheet": "Sheet1",
+        "rowNumber": 7
+      },
+      "explanation": "Removed unsupported tag(s): script. The surrounding text was preserved.",
+      "rawSnippet": "<p>Unit is functional. <script>alert('unsupported tag')</script> Recommend annual flushing.</p>",
+      "importedPreview": "Unit is functional. Recommend annual flushing."
+    },
+    {
+      "category": "unsupported_link",
+      "severity": "info",
+      "sourceRef": {
+        "sheet": "Sheet1",
+        "rowNumber": 8
+      },
+      "explanation": "Removed a link with a missing or unsupported URL scheme (only http/https are supported). The link's visible text was preserved.",
+      "rawSnippet": "<p>See spec sheet: <a href=\"javascript:alert(1)\">click here</a></p>",
+      "importedPreview": "See spec sheet: click here"
+    },
+    {
+      "category": "ambiguous_hierarchy",
+      "severity": "warning",
+      "sourceRef": {
+        "sheet": "Sheet1",
+        "rowNumber": 10
+      },
+      "explanation": "Comment text appeared before any item was established and could not be placed in the hierarchy.",
+      "rawSnippet": "<p>Panel is a mix of breaker types; further evaluation by a licensed electrician recommended.</p>",
+      "importedPreview": null
+    }
+  ],
+  "sourceRowRecords": [
+    {
+      "sourceRef": {
+        "sheet": "Sheet1",
+        "rowNumber": 3
+      }
+    },
+    {
+      "sourceRef": {
+        "sheet": "Sheet1",
+        "rowNumber": 4
+      }
+    },
+    {
+      "sourceRef": {
+        "sheet": "Sheet1",
+        "rowNumber": 5
+      }
+    },
+    {
+      "sourceRef": {
+        "sheet": "Sheet1",
+        "rowNumber": 7
+      }
+    },
+    {
+      "sourceRef": {
+        "sheet": "Sheet1",
+        "rowNumber": 8
+      }
+    },
+    {
+      "sourceRef": {
+        "sheet": "Sheet1",
+        "rowNumber": 9
+      }
+    },
+    {
+      "sourceRef": {
+        "sheet": "Sheet1",
+        "rowNumber": 10
+      }
+    },
+    {
+      "sourceRef": {
+        "sheet": "Sheet1",
+        "rowNumber": 11
+      }
+    }
+  ]
+}

@@ -11,11 +11,18 @@ Spectora XLSX
   → safe rich-content processing
   → canonical template model
   → schema validation
-  → deterministic integrity engine
   → atomic persistence in Supabase
+  → re-read persisted template
+  → deterministic integrity engine
   → template editor / import report
   → optional AI auditor
 ```
+
+(Revised from the original sketch: the integrity engine runs *after*
+persistence, not before. It compares the in-memory parsed template against
+what was actually re-read from Postgres — that's the only way it can prove
+the write itself didn't lose anything, not just that parsing succeeded. See
+§2.8a.)
 
 Each arrow is a real stage boundary: a stage consumes a well-defined input shape,
 produces a well-defined output shape, and does not reach past its neighbors. This
@@ -80,58 +87,126 @@ persistence. Catches structural bugs in earlier stages (e.g. an item with no
 parent section, a negative order index) before they reach the database, and
 gives a precise, typed error instead of a database constraint failure.
 
-### 2.8 Deterministic integrity engine
-Computes, without any AI involvement:
-- Row-count reconciliation: source rows in vs. rows accounted for out
-  (mapped + skipped), per section and in total.
-- A diff-style report of what was imported, what was preserved verbatim, what
-  was normalized/changed (e.g. whitespace, HTML entity decoding), and what was
-  marked unsupported.
-- The explicit distinction required by requirement 9: `absent_in_source` (the
-  field simply had no value in the export) vs. `unsupported_by_importer` (the
-  export had content there, but our importer couldn't map it).
-This engine's output is the only source of truth for "did the import preserve
-the customer's work." The AI auditor (§7) explains this output; it does not
-recompute or override it.
+### 2.8 Atomic persistence in Supabase
+The canonical model (post-validation) is written to Postgres by a single
+Postgres function, `import_template(jsonb)`
+(`supabase/migrations/20260915000000_import_pipeline.sql`), called once —
+not a sequence of client-side inserts. A PL/pgSQL function body is one
+implicit transaction: either the whole template (all sections, items,
+comments, plus the `import_runs`/`import_issues` audit trail) commits, or an
+error rolls back everything the call did, including the `templates` row
+itself. No partially-imported template can ever become visible/queryable.
+See `docs/decision-log.md` D7 for why this is the transaction strategy
+instead of client-side compensating deletes.
 
-### 2.9 Atomic persistence in Supabase
-The canonical model (post-validation) and its integrity report are written to
-Postgres in a single transaction: either the whole template (all sections,
-items, comments, and the associated import report) is persisted, or none of it
-is. No partially-imported template should ever be visible/queryable.
+### 2.8a Deterministic integrity engine — THIS IS NOT AI
+`src/lib/integrity/` (`computeIntegrityResult`). A pure function — same
+inputs always produce the same result, no model call anywhere in it — that
+re-reads the just-committed template from Postgres and reconciles four
+things it's given:
 
-### 2.10 Template editor / import report
+1. **the canonical parsed template** (what the parser produced, in memory)
+2. **the persisted template** (re-read from Postgres, post-commit — a real
+   round-trip proof, not a within-transaction snapshot)
+3. **the import issue candidates** the parser raised
+4. **the source-row records** — every meaningful row the parser saw in the
+   original file (docs/spectora-format.md assumption 6 defines "meaningful":
+   pure blank spacer rows don't count)
+
+It checks, in order of severity:
+- **Structure counts** — source vs. persisted section/item/comment counts.
+- **Ordering** — persisted `order_index` values are a correct, gap-free
+  sequence, and match what the parser computed.
+- **Text preservation** — every section/item name and comment's plain text
+  and safe HTML, compared via whitespace-normalized equality
+  (`src/lib/import/checksum.ts`), collecting *every* mismatch found rather
+  than stopping at the first (a real difference is never hidden by an early
+  return).
+- **Link preservation** — every comment's link metadata, source vs. persisted.
+- **Formatting warnings** — surfaced directly from `unsupported_formatting`
+  issue candidates.
+- **Source-row coverage** — the requirement-3/12 proof: every meaningful row
+  is classified as `mapped`, `unsupported` (issue: `unrecognized_row`,
+  severity `warning` — content existed but couldn't be placed at all), or
+  `intentionally ignored with reason` (issue: `ambiguous_hierarchy` — a
+  specific structural reason is known). `unaccountedRows` — the count left
+  over after those three buckets — **must be 0** for a trusted import; if
+  it's not, the exact unaccounted `SourceRef`s are included in the result,
+  never just a number.
+
+Output is one of four honest, discrete statuses — `verified`,
+`verified_with_warnings`, `review_required`, `failed` — never a blended
+score. See `docs/decision-log.md` D9 for why a percentage/score was
+deliberately rejected. `failed` means the *persistence round-trip itself*
+is broken (structure/ordering/text mismatch — a bug in this system, not a
+source limitation); `review_required` means a meaningful source row is
+unaccounted for. Both set `reviewRequired: true`.
+
+This engine's output — persisted to `import_runs.integrity_status` /
+`integrity_result` — is the only source of truth for "did the import
+preserve the customer's work." The AI auditor (§7) may explain this output;
+it does not recompute or override it.
+
+### 2.9 Template editor / import report
 - **Editor**: reads/writes the canonical model via server actions/route
   handlers. Supports editing section names, item names, and comment text
   (requirement 4). Edits are persisted immediately to Supabase (requirement 5).
-- **Import report**: a reviewer-facing screen built directly from the integrity
-  engine's output — counts, preserved/changed/unsupported breakdowns, and the
-  absent-vs-unsupported distinction, per section and item.
-- **Duplicate**: deep-copies a template's full row set (sections, items,
-  comments, and — separately — a fresh import report if relevant) under new IDs,
-  so edits to the copy never touch the original (requirement 6).
+- **Import report**: a reviewer-facing screen built directly from the
+  integrity engine's `IntegrityResult` — `src/lib/integrity/format-report.ts`
+  is the reference rendering (structure counts, source coverage, ordering,
+  text preservation, links, formatting warnings, and a prominent "review
+  required" banner when applicable).
+- **Duplicate**: one call to the `duplicate_template(uuid, text)` Postgres
+  function deep-copies a template's full row set (sections, items, comments)
+  under new IDs, atomically — same one-function-body-is-one-transaction
+  posture as `import_template` (§2.8, decision-log D7). `import_runs` and
+  `import_issues` are deliberately *not* copied: a duplicate is not a fresh
+  Spectora import, so it has no import run and no integrity status of its
+  own. Provenance survives as `templates.parent_template_id` plus the
+  per-row `source_sheet`/`source_row_number` values, which remain true.
+  After the write commits, both templates are re-read and compared by
+  `verifyDuplicateIndependence` — content must match, and the two id sets
+  must be disjoint (requirement 6).
 
-### 2.11 Optional AI auditor
+### 2.10 Optional AI auditor
 A bonus layer, built only after the baseline above is complete and demonstrated.
 See §7 for its contract and hard constraints.
 
-## 3. Data Model (indicative)
+## 3. Data Model (as implemented)
 
-Exact columns will be finalized during implementation, but the shape is fixed by
-this architecture:
+`supabase/migrations/20260915000000_import_pipeline.sql` and
+`20260915010000_import_integrity.sql`:
 
 ```
-templates      (id, name, source_filename, created_at, duplicated_from_id?)
-sections       (id, template_id, name, order_index)
-items          (id, section_id, name, order_index)
-comments       (id, item_id, plain_text, rich_text_html?, order_index)
-import_reports (id, template_id, generated_at, totals JSON, per_section JSON)
-skipped_rows   (id, template_id, source_location, reason_code, raw_snippet)
+templates      (id, name, source_filename, source_file_sha256, created_at, parent_template_id?)
+sections       (id, template_id, name, order_index, source_sheet, source_row_number)
+items          (id, section_id, name, order_index, source_sheet, source_row_number)
+comments       (id, item_id, plain_text, safe_html?, order_index,
+                 source_sheet, source_row_number, link_metadata?)
+import_runs    (id, template_id?, source_filename, source_file_sha256, status,
+                 section_count, item_count, comment_count, issue_count,
+                 integrity_status?, integrity_result JSONB?, error_message?,
+                 created_at, completed_at?)
+import_issues  (id, import_run_id, category, severity, source_sheet,
+                 source_row_number, explanation, raw_snippet, imported_preview?)
 ```
 
-`skipped_rows` and `import_reports` exist specifically so requirements 3, 9, 11,
-and 12 have a concrete, queryable home — they are not an afterthought bolted onto
-the editor tables.
+Two design choices worth calling out, since they differ from this section's
+original sketch:
+
+- **Source-row traceability lives inline**, not in a separate join table.
+  `source_sheet`/`source_row_number` on `sections`/`items`/`comments` mean
+  every persisted node can answer "where did this come from" from its own
+  columns — no `skipped_rows` table needed; `import_issues` already plays
+  that role for the rows that *didn't* map cleanly, and is a concrete,
+  queryable home for requirements 3, 9, 11, and 12.
+- **`import_runs.integrity_result` is the full computed `IntegrityResult`**
+  (§2.8a), stored as JSONB, not a normalized breakdown across tables. The
+  integrity engine's output is a cohesive, versioned report; splitting it
+  across tables would make "read back exactly what the engine said" harder
+  for no real benefit at this scale. `integrity_status` is a plain column
+  alongside it purely so it's cheaply queryable/filterable without parsing
+  JSON.
 
 ## 4. Why a Structured Model, Not an HTML Blob
 
@@ -167,12 +242,16 @@ rather than being an arbitrary set of tags.
 ## 6. Failure Handling Philosophy
 
 Per-row/per-field failures during parsing or normalization do not abort the
-whole import. A single malformed cell becomes one `skipped_rows` entry with a
-reason code; the rest of the template still imports. A file-level failure (e.g.
-not a valid spreadsheet, or a required top-level structure entirely absent) does
-abort the import, with a clear, honest error — never a partially-persisted
-template (see §2.9, atomicity). Requirement 12 (demonstrate at least one failure
-case) is satisfied by a fixture and test exercising both of these paths.
+whole import. A single malformed cell becomes one `ImportIssueCandidate` (and,
+once persisted, one `import_issues` row) with a reason code; the rest of the
+template still imports. A file-level failure (e.g. not a valid spreadsheet, or
+a required top-level structure entirely absent) does abort the import, with a
+clear, honest error — never a partially-persisted template (see §2.8,
+atomicity). At the persistence layer, every attempt — including early
+failures — is still recorded as a `failed` `import_runs` row with the real
+error (`docs/decision-log.md` D8), so a failure is demonstrable, not silent.
+Requirement 12 (demonstrate at least one failure case) is satisfied by a
+fixture and tests exercising both of these paths, end to end.
 
 ## 7. AI Auditor — Contract and Constraints
 
