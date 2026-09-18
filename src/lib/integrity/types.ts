@@ -90,6 +90,14 @@ export const SourceRowCoverageSchema = z.object({
   unaccountedRows: z.number().int().nonnegative(),
   /** Exactly which rows are unaccounted for — never just a count when the count is nonzero. */
   unaccountedSourceRefs: z.array(SourceRefSchema),
+  /**
+   * Exactly which rows are genuinely unsupported (produced no mapped node at
+   * all). Lets a presentation layer distinguish this from a row that DID map
+   * successfully but also carries an informational issue (e.g. extra
+   * unmodeled columns) — the same `unrecognized_row` category covers both,
+   * but only rows in this list represent an actual mapping gap.
+   */
+  unsupportedSourceRefs: z.array(SourceRefSchema),
 });
 export type SourceRowCoverage = z.infer<typeof SourceRowCoverageSchema>;
 

@@ -113,6 +113,7 @@ describe("computeIntegrityResult — perfect import", () => {
       ignoredRowsWithReason: 0,
       unaccountedRows: 0,
       unaccountedSourceRefs: [],
+      unsupportedSourceRefs: [],
     });
   });
 
@@ -339,6 +340,7 @@ describe("computeIntegrityResult — unsupported row correctly accounted for", (
       unsupportedRows: 1,
       ignoredRowsWithReason: 0,
       unaccountedRows: 0,
+      unsupportedSourceRefs: [ref(6)],
     });
     expect(result.status).toBe("verified_with_warnings");
     expect(result.summary).toBe("Verified with 1 warning.");
@@ -410,6 +412,39 @@ describe("computeIntegrityResult — unsupported row correctly accounted for", (
     expect(result.summary).toBe("Verified with 1 warning.");
   });
 
+  it("counts an info-severity unrecognized_row as unsupported, not unaccounted, when the row produced NO node at all", () => {
+    // Found against a real Spectora export: a repeated section/item name
+    // (Spectora's "repeat on every row" convention) with a blank comment
+    // cell creates nothing new in the tree, so the row has zero footprint in
+    // mappedRefs — even though its OTHER (unmapped) columns had content and
+    // therefore raised an info-severity issue. Before this fix, that row
+    // fell through every bucket silently: not mapped, not unsupported
+    // (severity wasn't "warning"), not ignored — an unexplained gap despite
+    // a real, recorded issue existing for it.
+    const sourceRowRecords = [...baseSourceRowRecords(), { sourceRef: ref(9) }];
+    const issues: ImportIssueCandidate[] = [
+      {
+        category: "unrecognized_row",
+        severity: "info",
+        sourceRef: ref(9),
+        explanation: "This row has content in one or more columns outside the recognized columns.",
+        rawSnippet: "Roof\tShingles\t\tinfo\tcheckbox",
+        importedPreview: "Roof / Shingles",
+      },
+    ];
+
+    const result = computeIntegrityResult({
+      parsedTemplate: baseTemplate(),
+      persistedTemplate: basePersisted(),
+      issues,
+      sourceRowRecords,
+    });
+
+    expect(result.sourceCoverage.unsupportedRows).toBe(1);
+    expect(result.sourceCoverage.unaccountedRows).toBe(0);
+    expect(result.status).toBe("verified_with_warnings");
+  });
+
   it("an info-severity unrecognized_row (extra unmapped column) does not demote an already-mapped row", () => {
     // Row 3 already carries the section/item/first comment (mapped). An
     // info-severity issue on that same row (e.g. an extra unmapped column)
@@ -444,5 +479,175 @@ describe("unverifiableIntegrityResult", () => {
     expect(result.status).toBe("failed");
     expect(result.reviewRequired).toBe(true);
     expect(result.summary).toContain("network error");
+  });
+});
+
+/**
+ * The most important preservation check in the product: the text that came
+ * out must be the text that went in. Its passing direction was covered from
+ * the start; these cover the direction that actually matters — that a
+ * corruption is DETECTED rather than waved through.
+ */
+describe("computeIntegrityResult — text mismatch", () => {
+  function withPersistedComment(plainText: string) {
+    const persisted = basePersisted();
+    persisted.sections[0].items[0].comments[0].plain_text = plainText;
+    return computeIntegrityResult({
+      parsedTemplate: baseTemplate(),
+      persistedTemplate: persisted,
+      issues: [],
+      sourceRowRecords: baseSourceRowRecords(),
+    });
+  }
+
+  it("fails when a persisted comment's text differs from the source", () => {
+    const result = withPersistedComment("Good condition, mostly.");
+
+    expect(result.textPreservation.status).toBe("mismatch");
+    expect(result.textPreservation.mismatches).toHaveLength(1);
+    expect(result.status).toBe("failed");
+    expect(result.reviewRequired).toBe(true);
+  });
+
+  it("names the exact source row whose text drifted", () => {
+    const result = withPersistedComment("Something else entirely.");
+    expect(result.textPreservation.mismatches[0].sourceRef).toEqual(ref(3));
+  });
+
+  it("detects truncation, not just replacement", () => {
+    const result = withPersistedComment("Good");
+    expect(result.textPreservation.status).toBe("mismatch");
+  });
+
+  it("detects a comment that persisted as empty", () => {
+    const result = withPersistedComment("");
+    expect(result.textPreservation.status).toBe("mismatch");
+  });
+
+  it("tolerates pure whitespace differences, which are not content changes", () => {
+    // Normalization is deliberate: a trailing space or a newline→space change
+    // isn't data loss, and flagging it would bury real mismatches in noise.
+    const result = withPersistedComment("  Good   condition.  ");
+    expect(result.textPreservation.status).toBe("verified");
+  });
+
+  it("does NOT tolerate a punctuation change", () => {
+    const result = withPersistedComment("Good condition!");
+    expect(result.textPreservation.status).toBe("mismatch");
+  });
+
+  it("fails when a section NAME was altered in persistence", () => {
+    const persisted = basePersisted();
+    persisted.sections[0].name = "Roofing";
+    const result = computeIntegrityResult({
+      parsedTemplate: baseTemplate(),
+      persistedTemplate: persisted,
+      issues: [],
+      sourceRowRecords: baseSourceRowRecords(),
+    });
+
+    expect(result.textPreservation.status).toBe("mismatch");
+    expect(result.status).toBe("failed");
+  });
+
+  it("fails when an item NAME was altered in persistence", () => {
+    const persisted = basePersisted();
+    persisted.sections[0].items[0].name = "Shingle";
+    const result = computeIntegrityResult({
+      parsedTemplate: baseTemplate(),
+      persistedTemplate: persisted,
+      issues: [],
+      sourceRowRecords: baseSourceRowRecords(),
+    });
+
+    expect(result.textPreservation.status).toBe("mismatch");
+  });
+
+  it("counts every comparison it made, so 'verified' can't mean 'compared nothing'", () => {
+    const result = computeIntegrityResult({
+      parsedTemplate: baseTemplate(),
+      persistedTemplate: basePersisted(),
+      issues: [],
+      sourceRowRecords: baseSourceRowRecords(),
+    });
+
+    // 1 section name + 1 item name + 2 comments.
+    expect(result.textPreservation.comparedCount).toBe(4);
+  });
+});
+
+describe("computeIntegrityResult — safe normalization vs. genuine meaning loss", () => {
+  // docs/architecture.md §5a / §6 of the safe-normalization spec: a source
+  // field run through the approved Level-A pipeline (rich-content.ts) is what
+  // the parser hands this engine as `plainText` — the persisted side is
+  // exactly that same string round-tripped through Postgres. No approved
+  // normalization can ever look like data loss here, because both sides of
+  // the comparison are the SAME already-normalized string.
+  it("an approved whitespace/entity normalization is preserved — the parsed side already reflects it", () => {
+    const parsed = baseTemplate();
+    // What the parser actually produces for source HTML like
+    // "<p>Roof&nbsp;&nbsp;condition</p>" — see rich-content.test.ts.
+    parsed.sections[0].items[0].comments[0].plainText = "Roof condition";
+    const persisted = basePersisted();
+    persisted.sections[0].items[0].comments[0].plain_text = "Roof condition";
+
+    const result = computeIntegrityResult({
+      parsedTemplate: parsed,
+      persistedTemplate: persisted,
+      issues: [],
+      sourceRowRecords: baseSourceRowRecords(),
+    });
+
+    expect(result.textPreservation.status).toBe("verified");
+  });
+
+  it("still FAILS when meaningful text was lost, even inside formatting tags — normalization is never a licence to drop wording", () => {
+    // Source: "<strong>Unsafe electrical panel</strong>" → parser correctly
+    // preserves the full wording as plainText.
+    const parsed = baseTemplate();
+    parsed.sections[0].items[0].comments[0].plainText = "Unsafe electrical panel";
+    // Persisted: "Electrical panel" — a word went missing somewhere in the
+    // write path. This is real data loss, not normalization, and must fail.
+    const persisted = basePersisted();
+    persisted.sections[0].items[0].comments[0].plain_text = "Electrical panel";
+
+    const result = computeIntegrityResult({
+      parsedTemplate: parsed,
+      persistedTemplate: persisted,
+      issues: [],
+      sourceRowRecords: baseSourceRowRecords(),
+    });
+
+    expect(result.textPreservation.status).toBe("mismatch");
+    expect(result.status).toBe("failed");
+    expect(result.reviewRequired).toBe(true);
+  });
+});
+
+describe("computeIntegrityResult — recoverable_formatting issues", () => {
+  it("counts a recoverable_formatting issue as a formatting warning, same as unsupported_formatting", () => {
+    const issues: ImportIssueCandidate[] = [
+      {
+        category: "recoverable_formatting",
+        severity: "info",
+        sourceRef: ref(3),
+        explanation: "This markup is not directly supported by the editor, but its content can be converted safely.",
+        rawSnippet: '<div class="x">Good condition.</div>',
+        importedPreview: "Good condition.",
+        fixSafelyAvailable: true,
+        proposedPlainText: "Good condition.",
+        proposedSafeHtml: "Good condition.",
+      },
+    ];
+
+    const result = computeIntegrityResult({
+      parsedTemplate: baseTemplate(),
+      persistedTemplate: basePersisted(),
+      issues,
+      sourceRowRecords: baseSourceRowRecords(),
+    });
+
+    expect(result.formattingWarnings).toHaveLength(1);
+    expect(result.status).toBe("verified_with_warnings");
   });
 });

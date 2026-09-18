@@ -7,6 +7,7 @@
 
 export type IssueGroupKey =
   | "sanitized_unsafe_html"
+  | "recoverable_content"
   | "formatting_changed"
   | "unsupported_source_content"
   | "unmapped_rows"
@@ -24,6 +25,12 @@ const GROUPS: Record<IssueGroupKey, IssueGroupMeta> = {
     key: "sanitized_unsafe_html",
     label: "Sanitized unsafe HTML",
     description: "Markup that could run code or alter the page was removed for safety.",
+  },
+  recoverable_content: {
+    key: "recoverable_content",
+    label: "Recoverable content",
+    description:
+      "Content the editor doesn't directly support, but with a deterministic safe fix available — review the before/after preview and apply it if it looks right.",
   },
   formatting_changed: {
     key: "formatting_changed",
@@ -56,6 +63,7 @@ const GROUPS: Record<IssueGroupKey, IssueGroupMeta> = {
 export const ISSUE_GROUP_ORDER: IssueGroupKey[] = [
   "validation_issues",
   "sanitized_unsafe_html",
+  "recoverable_content",
   "unmapped_rows",
   "unsupported_source_content",
   "link_differences",
@@ -76,6 +84,8 @@ export function classifyIssueGroup(issue: ClassifiableIssue): IssueGroupKey {
       return UNSAFE_TAG_PATTERN.test(issue.rawSnippet) || UNSAFE_TAG_PATTERN.test(issue.explanation)
         ? "sanitized_unsafe_html"
         : "formatting_changed";
+    case "recoverable_formatting":
+      return "recoverable_content";
     case "unrecognized_row":
       return "unsupported_source_content";
     case "ambiguous_hierarchy":

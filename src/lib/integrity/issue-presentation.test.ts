@@ -38,6 +38,16 @@ describe("classifyIssueGroup", () => {
     ).toBe("link_differences");
   });
 
+  it("maps recoverable_formatting to its own recoverable-content group, never lumped with formatting_changed", () => {
+    expect(
+      classifyIssueGroup({
+        category: "recoverable_formatting",
+        rawSnippet: '<div class="x">text</div>',
+        explanation: "This markup is not directly supported by the editor, but its content can be converted safely.",
+      })
+    ).toBe("recoverable_content");
+  });
+
   it("maps malformed_workbook and other to validation issues", () => {
     expect(
       classifyIssueGroup({ category: "malformed_workbook", rawSnippet: "x", explanation: "x" })
