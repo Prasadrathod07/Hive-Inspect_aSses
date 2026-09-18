@@ -127,23 +127,35 @@ orchestrated by `parse-workbook.ts`.
 
 **File validation** (`validate-file.ts`, new this phase — this is
 architecture.md §2.1, which previously only existed implicitly inside the
-workbook-load try/catch): rejects an empty file, a file over 20MB
-(ASSUMPTION — unverified against a real export, which may contain photos
-Spectora's spreadsheet export might not include at all), or a filename
-without a `.xlsx`/`.xls` extension — all as clear, specific blocking issues
-before any parsing is attempted, so a bad upload gets an honest reason
-instead of a generic parser stack trace.
+workbook-load try/catch): rejects an empty file, a file over
+`MAX_FILE_SIZE_BYTES` (4MB — set by the deployment platform's request body
+limit, not by an assumption about spreadsheet size; see
+`docs/deployment.md`), or a filename without a `.xlsx`/`.xls` extension —
+all as clear, specific blocking issues before any parsing is attempted, so
+a bad upload gets an honest reason instead of a generic parser stack trace.
 
 **Rich content policy, as implemented** (`rich-content.ts`): allowlist is
 `b`, `strong`, `i`, `em`, `u`, `br`, `p`, `ul`, `ol`, `li`, `a` — paragraphs,
 line breaks, bold/italic/underline, lists, and links, matching
-`docs/architecture.md` §5. Anything else — `<script>`, `<img>`, `<table>`,
-`<iframe>`/video embeds, inline styles, unknown tags — is stripped from
-`safeHtml` and reported via an `unsupported_formatting` issue that names the
-exact tag(s) removed; the surrounding text is never lost. This directly
+`docs/architecture.md` §5. `b`/`i` are accepted as input but normalized to
+`strong`/`em` on output, so a stored comment always matches what the editor's
+own Tiptap toolbar would produce. Anything else — `<script>`, `<img>`,
+`<table>`, `<iframe>`/video embeds, inline styles, unknown tags — is stripped
+from `safeHtml` and reported via an `unsupported_formatting` issue that names
+the exact tag(s) removed; the surrounding text is never lost. This directly
 covers the "image/video/embed/table content that cannot be faithfully
 represented" case: it's recorded as unsupported, never silently dropped or
 presented as if it had succeeded.
+
+One exception exists within "anything else": a `<div>`/`<span>` wrapper is
+either normalized silently (no attributes — nothing is lost by unwrapping
+it) or offered as a "Fix Safely" action with a before/after preview (an
+attribute is present, so the unwrap is still provably text-preserving but
+held for a reviewer's confirmation rather than applied automatically). See
+`docs/architecture.md` §5a and `docs/decision-log.md` D16 for the full
+three-level policy this section's Row 7 (`<script>`) and any table/image/
+embed case still fall outside of — those remain manual-review-only, exactly
+as before.
 
 **Links**: a safe `http(s)://` link's href and visible text both survive
 untouched into `safeHtml`/`linkMetadata`. An unsafe-scheme link (tested with

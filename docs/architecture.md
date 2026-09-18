@@ -188,7 +188,11 @@ import_runs    (id, template_id?, source_filename, source_file_sha256, status,
                  integrity_status?, integrity_result JSONB?, error_message?,
                  created_at, completed_at?)
 import_issues  (id, import_run_id, category, severity, source_sheet,
-                 source_row_number, explanation, raw_snippet, imported_preview?)
+                 source_row_number, explanation, raw_snippet, imported_preview?,
+                 resolution_status, fix_safely_available, proposed_plain_text?,
+                 proposed_safe_html?, applied_fix_at?)
+normalization_events (id, import_run_id, event_type, source_sheet,
+                 source_row_number, description, before_hash, after_hash, created_at)
 ```
 
 Two design choices worth calling out, since they differ from this section's
@@ -238,6 +242,60 @@ rather than being an arbitrary set of tags.
   preserved, only the disallowed markup is flagged.
 - The exact allowlist lives in code (sanitizer config) once implemented, and is
   referenced from here rather than duplicated.
+
+## 5a. Safe Normalization, Recoverable Content, and Manual Review
+
+Introduced after §5 shipped, to fix a real problem it had: every tag outside
+the sanitizer allowlist — a genuinely harmless `<div>` wrapper with no
+attributes, exactly as much as a stripped `<table>` — raised the identical
+`unsupported_formatting` warning. That taught reviewers to ignore the
+category, which is the opposite of what a warning is for. Three levels now
+exist, applied in this order:
+
+- **Level A — silent safe normalization.** Applied automatically, never
+  shown as a warning: leading/trailing/duplicate whitespace, empty HTML
+  tags, standard entity decoding (`&nbsp;`, `&amp;`, `&lt;`, `&gt;`,
+  `&quot;`), a bare `<div>`/`<span>` wrapper with **no attributes** (removing
+  it loses nothing — no text, no attribute, no semantic hook), and
+  `b`→`strong`/`i`→`em` formatting normalization. Every one of these is
+  provably meaning-preserving by construction, not by inspection, so none of
+  them is a judgment call. Each detected transform is still logged as a
+  typed `NormalizationEvent` (`src/lib/import/types.ts`;
+  `normalization_events` table) — "silent" means "not a customer-facing
+  warning," never "untraceable." The Import Report shows a small, collapsed,
+  non-alarming "Automatic cleanup" line when any occurred.
+- **Level B — recoverable ("Fix Safely").** The same wrapper tags, but
+  carrying an attribute (`class`, `style`, `id`, `data-*`) — a signal the
+  wrapper *might* carry meaning this importer can't interpret, even though
+  the mechanical unwrap is identical to Level A and still provably preserves
+  every word (checked once, at import time, by comparing the fully-stripped
+  plain text against what the transform would produce). Because the
+  attribute is present, the fix is computed and stored
+  (`import_issues.proposed_plain_text`/`proposed_safe_html`,
+  `fix_safely_available`) but never applied automatically. A reviewer sees a
+  "Fix Safely" action on the Issue Review page, which opens a before/after
+  preview and applies the change only on explicit confirmation
+  (`apply_issue_fix(uuid)`, one Postgres function call — the comment update
+  and the issue's resolution commit together or not at all, same posture as
+  `import_template`/`duplicate_template`, D7). If a field mixes an
+  attribute-bearing wrapper with any genuinely unsupported tag (a `<table>`
+  inside a `<div>`, say), the whole field falls through to Level C instead —
+  a recoverable fix is only ever offered when it is the field's *only*
+  problem.
+- **Level C — manual review (unchanged).** Everything else outside the
+  allowlist: tables, images, embeds, scripts, unknown tags. No deterministic
+  proof of safe recoverability exists for these, so no fix is ever offered —
+  this is exactly the pre-existing `unsupported_formatting` behavior from
+  §5. `sanitized_unsafe_html` (script/iframe/object/embed/event-handler
+  patterns) remains a distinct presentation category within this level for
+  the same reason it always was: a routine formatting loss and a
+  security-relevant removal are different facts and stay visually distinct.
+
+The one product principle this all follows: **auto-fix when equivalence is
+proven, ask the user when only a safe transformation can be proposed, never
+guess when meaning or structure is uncertain.** No AI is involved anywhere
+in this — every level above is a plain, deterministic, unit-tested function
+(`src/lib/import/rich-content.ts`).
 
 ## 6. Failure Handling Philosophy
 

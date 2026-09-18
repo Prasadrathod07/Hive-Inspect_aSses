@@ -16,13 +16,14 @@ select table_name
 from information_schema.tables
 where table_schema = 'public'
 order by table_name;
--- expect: comments, import_issues, import_runs, items, sections, templates
+-- expect: ai_audits, comments, import_issues, import_runs, items,
+--         normalization_events, sections, templates
 
 select routine_name
 from information_schema.routines
 where routine_schema = 'public'
 order by routine_name;
--- expect: duplicate_template, import_template
+-- expect: apply_issue_fix, duplicate_template, import_template
 ```
 
 ## 2. Import writes atomically

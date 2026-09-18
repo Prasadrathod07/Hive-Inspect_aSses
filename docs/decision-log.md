@@ -283,3 +283,232 @@ Auto-deleting on failure was rejected: the copy is already committed, a
 failure would indicate a serious bug worth inspecting, and silently
 destroying rows to tidy up is exactly the kind of unasked-for destructive
 action this codebase avoids. It's reported instead.
+
+### D12 — Two audiences for a failure, and they never see the same text
+
+**Decision**: Everything thrown is converted by `toAppError` (`src/lib/errors/
+app-error.ts`) into a typed `AppError` carrying a `code`, a `message`, a
+`recovery` line, and a `retryable` flag. The original error is written to the
+server log; only the catalog text ever reaches the browser. Nothing in the
+catalog is interpolated from an internal string.
+
+**Alternatives considered**: Returning `error.message` and trusting that the
+messages we author are the only ones that surface; or stripping stack traces
+but passing the message through.
+
+**Why**: This app is deployed publicly with no auth (D6), so "the user" and
+"anyone on the internet" are the same audience. Before this change, six call
+sites returned raw `error.message` into a rendered page — a misconfigured
+server would tell an anonymous visitor exactly which environment variables
+were missing, and a missing migration would name the absent table. Passing
+messages through selectively doesn't work either, because the dangerous
+messages are precisely the ones we didn't author and can't enumerate: they
+come from Postgres, from the Supabase client, from Node's networking layer.
+Inverting it — a closed catalog of safe text, with an explicit fallback for
+anything unrecognized — means an unfamiliar error is safe by construction
+rather than by review.
+
+Classification is deliberately narrow. `classify` only recognizes the cases
+we can name with confidence (missing credentials, missing schema) and
+otherwise returns the caller's fallback code, so a surprise gets an honest
+"something went wrong" rather than a confidently wrong label.
+
+Zod validation messages are the one thing that still passes through verbatim.
+They're human-authored, written for the person, and contain no internal
+detail — the same reason the parser's own issue explanations are safe to
+render.
+
+`ai_unavailable` exists in the catalog with nothing producing it yet. That's
+intentional: it fixes the contract for the optional AI auditor before the
+auditor exists, namely that an AI outage is a recoverable failure of an
+explanatory layer and never of import, edit, or duplication.
+
+### D13 — The AI auditor is given no field in which to be wrong
+
+**Decision**: The AI Import Auditor explains the deterministic integrity
+result and has (a) no access to customer content, (b) no output field for
+counts, status, or template content, and (c) no write path to anything but
+`ai_audits`. Its output must pass a `.strict()` Zod schema and an issue-id
+allowlist before any of it is rendered. See `docs/ai-auditor.md`.
+
+**Alternatives considered**: Sending the model the parsed template so it could
+give richer, content-aware explanations; letting it return a confidence score
+or its own assessment of import quality; filtering out invented issue ids
+rather than rejecting the response; running it server-side during report
+render so the page arrives complete.
+
+**Why**: Every one of those alternatives trades a real safety property for a
+cosmetic gain.
+
+Sending content buys nothing. What's being explained is a numeric and
+categorical result — counts, statuses, coverage buckets. The customer's actual
+comment text has no bearing on explaining "24 of 26 rows mapped, 2
+unsupported," so sending it would add exposure with no explanatory return.
+Dropping it also makes the privacy claim checkable rather than aspirational:
+`audit-payload.test.ts` plants a fake homeowner name and address in every
+content-bearing field and asserts neither reaches the payload.
+
+Giving the model a numeric or status output field would reintroduce exactly
+the false precision D9 rejected when it chose four discrete statuses over a
+score — and worse, it would create a surface on which the AI could visibly
+contradict the deterministic engine. Having no such field means the question
+"what if the AI disagrees with the integrity result?" cannot arise.
+
+Filtering invented ids instead of rejecting the whole response was tempting
+because it salvages a partially-good answer. It was rejected because a model
+that fabricated an id has demonstrated it isn't tracking the data it was
+given; the prose from that same response is then suspect, and quietly
+dropping the bad id would suppress the clearest available signal that
+something is wrong.
+
+Rendering server-side would have made the integrity report wait on a model
+call — the precise coupling this feature must not have. Running it as a
+client component that mounts after the report means a hung provider costs a
+spinner in one section, never the report.
+
+The prompt also instructs the model not to do these things. That instruction
+is the polite request; the schema, the allowlist, and the absent write path
+are the enforcement. The design does not depend on the model complying.
+
+**Addendum — pluggable transport, same safety contract**: `resolveProvider`
+(`src/lib/ai/provider.ts`) now supports two interchangeable transports behind
+the one-line `AiProvider.complete()` seam: calling Anthropic's Messages API
+directly (`ANTHROPIC_API_KEY`), or calling an OpenAI-compatible chat
+completions endpoint such as a self-hosted LiteLLM proxy
+(`OPENAI_API_KEY` + `OPENAI_BASE_URL`, checked first if both are set). This
+was added so a deployment can route model access through its own gateway
+instead of calling a provider directly. Nothing about the safety design
+above changes based on which transport is configured — both return raw text
+into the same `.strict()`-schema-and-issue-id-allowlist gate; neither has a
+write path beyond it. See `.env.example` for the two configurations.
+
+### D14 — Seeding goes through the real importer, and its reset stays a CLI, not a button
+
+**Decision**: `npm run seed` (`scripts/seed-demo.ts`) seeds the reviewer-facing
+demo template by calling `runSpectoraImport` — the exact function
+`POST /api/import` calls — never by inserting template/section/item/comment
+rows directly. It is idempotent by the source file's sha256 (already a column
+on `import_runs`; no schema change needed) and has a `--reset` flag that
+deletes only the run(s)/template(s) matching that exact hash. There is no
+"Reset demo data" button in the deployed app.
+
+**Alternatives considered**: Hand-writing seed SQL/rows directly for speed;
+exposing a reset action in the UI, gated behind an environment flag, as the
+task brief invited considering.
+
+**Why real-importer seeding**: The assessment's own founding principle is
+"preserve customer work first," proven by an importer whose correctness is
+independently verified (the deterministic Import Integrity Engine). A seed
+script that bypasses that importer to hand-insert rows would demonstrate
+nothing about the importer, and would risk the demo template being
+structurally different from what a real upload produces — the exact kind of
+divergence between "what we tested" and "what ships" this project has
+avoided everywhere else (D7's atomic-write function, D9's four honest
+statuses, D11's post-copy independence re-check). Reusing the real function
+means the seeded template is proof the pipeline works, not a shortcut around
+proving it.
+
+**Why no UI reset button**: The task explicitly asked this be "considered."
+It was, and rejected specifically because of D6 (no auth — the app is public
+so a reviewer never hits login friction). Every Server Action reachable from
+the deployed UI is reachable by any anonymous visitor, with no account, no
+rate limit tied to identity, and no confirmation step outside the UI's own
+control. A button that deletes the live demo template is one misconfigured
+environment variable or one bug in its gating condition away from being a
+public "delete this" button on a no-auth deployment. A CLI flag has none of
+that exposure: running it requires the repository, the service-role key, and
+a deliberate terminal command — the same bar every other destructive
+operation in this project (applying migrations, rotating the service key)
+already clears. The CLI's `--reset` already satisfies the actual requirement
+("idempotent or safely reset its own known demo records"); the button would
+have added risk without adding a capability that didn't already exist.
+
+### D15 — The upload size limit is set by the deployment platform, not a guess
+
+**Decision**: `MAX_FILE_SIZE_BYTES` is 4MB, derived in exactly one place
+(`src/lib/import/validate-file.ts`), and every surface that states the
+limit — the dropzone's copy, the `AppError` catalog message, the API route's
+pre-buffering `Content-Length` guard — computes its text from that constant
+rather than hardcoding a number.
+
+**Alternatives considered**: Leaving the limit at 20MB, which had been an
+unverified assumption ("a generous ceiling for a spreadsheet-only export")
+since the file-validation phase; raising it back up once a real Spectora
+export is available, in case the real file turns out to be large.
+
+**Why**: Preparing for actual Vercel deployment surfaced a fact that
+"generous ceiling" was never checked against: Vercel enforces a hard,
+non-configurable 4.5MB request body limit on Vercel Functions, on every
+plan, confirmed directly against current platform documentation rather than
+assumed. A request over that limit is rejected by the platform itself with a
+`413 FUNCTION_PAYLOAD_TOO_LARGE` before any application code runs — before
+even the `Content-Length` pre-check this app already had in
+`POST /api/import`. Every file between 4.5MB and 20MB would have bypassed
+this project's entire error-handling model (D12) and produced an opaque
+platform response instead of an honest, actionable `AppError`. That's not a
+theoretical gap; it's the most likely single failure mode for a real
+Spectora export, which is exactly the file this app exists to accept.
+
+4MB leaves deliberate headroom under the 4.5MB platform ceiling for
+multipart/form-data overhead (boundary strings, part headers, the filename
+field) so this app's own message is always the one a person sees.
+
+Raising the limit again if a real export needs more than 4MB was rejected as
+the *default* plan, because the actual fix for "the real file is bigger than
+4MB" is raising the platform-level limit through Vercel Blob or a presigned
+direct upload — a genuine architecture change, not a constant edit — and
+building that speculatively, before a real export has ever been measured,
+would be exactly the kind of unasked-for scope expansion this project avoids
+elsewhere (D1, the "simple over clever" principle in CLAUDE.md §2). If the
+real export turns out to need it, that's the next deliberate phase, not a
+silent default.
+
+### D16 — A wrapper's attribute, not its tag name, decides silent vs. asked
+
+**Decision**: docs/architecture.md §5a's three-level split (silent safe
+normalization / recoverable "Fix Safely" / manual review) draws its Level
+A/B line on one deterministic, checkable fact: whether a disallowed
+`<div>`/`<span>` wrapper carries an attribute. Bare → unwrap silently. Any
+attribute present anywhere in that field → hold the same mechanical unwrap
+for explicit human confirmation instead of applying it. `normalization_events`
+is a new table (not JSONB on `import_runs`), and applying a Level-B fix goes
+through one new atomic Postgres function, `apply_issue_fix(uuid)`, that
+reads its own previously-computed `proposed_plain_text`/`proposed_safe_html`
+rather than accepting new content from the caller.
+
+**Alternatives considered**: Classifying by tag name alone (all
+`<div>`/`<span>` silent, since sanitization already unwraps them
+identically either way); running the fix content back through the client
+before applying it; folding `normalization_events` into `import_issues` or
+into `import_runs.integrity_result`'s existing JSONB.
+
+**Why**: Tag name alone can't tell "decorative" from "load-bearing" — a
+`<div class="warning-box">` and a bare `<div>` sanitize to the identical
+output HTML, but only one of them *chose* to carry metadata this importer
+doesn't understand. An attribute is the one signal available, at parse time,
+that a human might have meant something by that markup beyond visual
+grouping. This is also the only lever available at all: this project's own
+principle (§11 of the safe-normalization brief this decision responds to)
+is "auto-fix when we can prove equivalence, ask when we can only propose a
+safe transformation, never guess when meaning is uncertain" — an attribute
+is exactly the boundary between "proven" and "merely proposed," since the
+transform's plain-text equivalence is checked deterministically either way
+(`processRichContent`'s `plainText` never differs between the two paths);
+what changes is only whether the *richer* HTML gets applied without asking.
+
+Re-deriving the fix from fresh content at apply time was rejected because it
+reopens exactly the gap Fix Safely exists to close: the preview a reviewer
+approved could silently differ from what gets written if either side
+recomputed independently. `apply_issue_fix` instead replays the *exact*
+value already computed and shown at import time, so "what you approved" and
+"what got applied" are the same string by construction, not by convention.
+
+A dedicated `normalization_events` table follows the same reasoning
+docs/architecture.md §3 already gave for keeping `import_issues` separate
+from `import_runs.integrity_result`: this needs to be counted and
+grouped by type for the Import Report's "N normalizations applied" line, and
+an event log is naturally many-rows-per-run — the shape a table fits, not a
+blob. It's populated as a best-effort write after the atomic
+`import_template` call, the same posture as the AI auditor's own writes
+(D13): losing this purely-informational log must never fail an
+otherwise-successful import.
