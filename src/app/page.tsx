@@ -40,7 +40,13 @@ export default async function TemplatesPage() {
     loadError = toAppError(error, "TemplatesPage");
   }
 
-  const needsReview = templates.filter(
+  // Deliberately narrower than "any template with an open issue" — this
+  // counts only the two statuses that mean something is actually broken or
+  // genuinely lost (an unaccounted row, or a persistence mismatch), never
+  // `verified_with_warnings` (docs/decision-log.md D9). The label spells
+  // that out so it never reads as "nothing to look at" when a template
+  // still has unsupported-content issues worth reviewing.
+  const failedOrReviewRequired = templates.filter(
     (t) => t.integrityStatus === "review_required" || t.integrityStatus === "failed"
   ).length;
   const lastImport = templates[0]?.updatedAt;
@@ -61,9 +67,13 @@ export default async function TemplatesPage() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <MetricCard label="Templates imported" value={String(templates.length)} icon={FileStack} />
             <MetricCard
-              label="Needs review"
-              value={String(needsReview)}
-              hint={needsReview > 0 ? "Review required or failed integrity check" : "Nothing flagged"}
+              label="Review required / failed"
+              value={String(failedOrReviewRequired)}
+              hint={
+                failedOrReviewRequired > 0
+                  ? "Templates with an unaccounted row or a persistence mismatch"
+                  : "No templates in this state — some may still have open issues to review"
+              }
               icon={ShieldAlert}
             />
             <MetricCard
