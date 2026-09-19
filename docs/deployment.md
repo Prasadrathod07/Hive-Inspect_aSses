@@ -25,7 +25,7 @@ wasn't" at the end.
 
 ## 2. Run migrations
 
-Apply all six migrations, **in this exact order** — later ones alter or
+Apply all seven migrations, **in this exact order** — later ones alter or
 depend on earlier ones:
 
 ```
@@ -35,6 +35,7 @@ supabase/migrations/20260915020000_import_issue_resolution.sql
 supabase/migrations/20260916000000_template_duplication.sql
 supabase/migrations/20260917000000_ai_audits.sql
 supabase/migrations/20260918000000_safe_normalization.sql
+supabase/migrations/20260919000000_unsupported_metadata.sql
 ```
 
 **Option A — Supabase SQL Editor** (no local Postgres tooling needed): open
@@ -53,6 +54,7 @@ psql "$DATABASE_URL" -f supabase/migrations/20260915020000_import_issue_resoluti
 psql "$DATABASE_URL" -f supabase/migrations/20260916000000_template_duplication.sql
 psql "$DATABASE_URL" -f supabase/migrations/20260917000000_ai_audits.sql
 psql "$DATABASE_URL" -f supabase/migrations/20260918000000_safe_normalization.sql
+psql "$DATABASE_URL" -f supabase/migrations/20260919000000_unsupported_metadata.sql
 ```
 
 Every table gets RLS enabled with **no policies** by design — only the

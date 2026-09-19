@@ -90,8 +90,23 @@ export type CanonicalTemplate = z.infer<typeof CanonicalTemplateSchema>;
  * persisted, authoritative import report — this type is not that report.
  */
 export const ImportIssueCategorySchema = z.enum([
-  /** Row content didn't match the recognized section/item/comment columns at all. */
+  /**
+   * Row content didn't match the recognized section/item/comment columns at
+   * all — no primary content for this row was mapped anywhere in the tree.
+   * See `unsupported_metadata` below for the sibling case where the row's
+   * primary content DID map and only extra columns are unrepresented; the
+   * two are never conflated (docs/decision-log.md D17).
+   */
   "unrecognized_row",
+  /**
+   * The row's primary content (section/item/comment) mapped successfully,
+   * but the source row also carries additional Spectora-specific columns
+   * (field type, checkbox/select options, default values, timestamps, etc.)
+   * this editor doesn't model. Purely informational — never counted against
+   * `sourceCoverage.unsupportedRows`, since the row's own footprint in the
+   * tree already proves it mapped (docs/decision-log.md D17).
+   */
+  "unsupported_metadata",
   /**
    * Rich-text markup outside the sanitizer allowlist was stripped; surrounding
    * text kept. Level C (manual review) — no deterministic fix is offered,
@@ -173,6 +188,15 @@ export const NormalizationEventTypeSchema = z.enum([
   "html_entity_decoded",
   "formatting_normalized",
   "safe_link_normalized",
+  /**
+   * A disallowed wrapper (e.g. a leftover `<div class="youtube-embed-wrapper">`
+   * placeholder) was removed even though it carried an attribute, because it
+   * was provably empty — no text, no `src`/`data-src`, no embed URL, no
+   * media identifier. An attribute on an empty element can't be "carrying
+   * meaning" the way D16 worries about, since there's no content for it to
+   * modify (docs/decision-log.md D17).
+   */
+  "empty_embed_wrapper_removed",
 ]);
 export type NormalizationEventType = z.infer<typeof NormalizationEventTypeSchema>;
 

@@ -9,11 +9,19 @@ import type { SourceRef } from "./types";
  */
 export type ColumnRole = "section" | "item" | "comment";
 
+/** One column outside the mapped section/item/comment roles that genuinely has content — the header label and value exactly as they appear in the source, never guessed or paraphrased. */
+export interface UnmappedField {
+  label: string;
+  value: string;
+}
+
 export interface RawSourceRow {
   sourceRef: SourceRef;
   cells: Partial<Record<ColumnRole, string>>;
   /** True if any column *outside* the mapped roles has non-blank content. */
   hasUnmappedContent: boolean;
+  /** Every non-blank column outside the mapped roles, label + value — the detail behind `hasUnmappedContent`. */
+  unmappedFields: UnmappedField[];
   /** Full row, tab-joined, for issue reporting — never used for parsing logic. */
   rawRowText: string;
 }
@@ -152,6 +160,7 @@ export function extractSheet(sheet: string, rows: string[][]): ExtractedSheet | 
     const roles = detectColumnRoles(rows[headerIndex]);
     if (!isPlausibleHeader(roles)) continue;
 
+    const headerRow = rows[headerIndex];
     const mappedIndexes = new Set(Object.values(roles));
     const dataRows = rows.slice(headerIndex + 1);
 
@@ -162,14 +171,21 @@ export function extractSheet(sheet: string, rows: string[][]): ExtractedSheet | 
         const columnIndex = roles[role]!;
         cells[role] = (row[columnIndex] ?? "").toString();
       }
-      const hasUnmappedContent = row.some(
-        (cell, index) => !mappedIndexes.has(index) && cell.toString().trim().length > 0
-      );
+
+      const unmappedFields: UnmappedField[] = [];
+      row.forEach((cell, index) => {
+        if (mappedIndexes.has(index)) return;
+        const value = cell.toString().trim();
+        if (!value) return;
+        const label = (headerRow[index] ?? "").toString().trim();
+        unmappedFields.push({ label: label || `Column ${index + 1}`, value });
+      });
 
       return {
         sourceRef: { sheet, rowNumber },
         cells,
-        hasUnmappedContent,
+        hasUnmappedContent: unmappedFields.length > 0,
+        unmappedFields,
         rawRowText: row.join("\t"),
       };
     });

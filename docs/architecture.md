@@ -132,7 +132,10 @@ It checks, in order of severity:
   specific structural reason is known). `unaccountedRows` — the count left
   over after those three buckets — **must be 0** for a trusted import; if
   it's not, the exact unaccounted `SourceRef`s are included in the result,
-  never just a number.
+  never just a number. A row that mapped its section/item/comment content
+  successfully but also carries extra, unmodeled Spectora columns gets a
+  separate `unsupported_metadata` issue instead — informational only, never
+  counted against `unsupportedRows` (docs/decision-log.md D17).
 
 Output is one of four honest, discrete statuses — `verified`,
 `verified_with_warnings`, `review_required`, `failed` — never a blended

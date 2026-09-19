@@ -11,13 +11,20 @@ import type { LinkMetadata, NormalizationEventType } from "./types";
  *   - Level A (silent): a bare `<div>`/`<span>` wrapper with no attributes.
  *     Unwrapping it loses nothing — no attribute, no semantic hook, nothing —
  *     so it's removed automatically and only logged internally
- *     (`normalizationEvents`), never surfaced as a warning.
- *   - Level B ("Fix Safely"): the same wrapper tags, but WITH an attribute
- *     (class/style/id/data-*) that we can't prove is purely cosmetic. The
- *     unwrap is still mechanically identical and still provably
- *     text-preserving, so a fix is offered — but held for human confirmation
- *     rather than applied silently, since an attribute could (in principle)
- *     be carrying meaning this importer doesn't understand.
+ *     (`normalizationEvents`), never surfaced as a warning. An
+ *     attribute-bearing wrapper that is provably EMPTY (no text, no
+ *     `src`/`data-src`, no embed URL, no media identifier — e.g. a leftover
+ *     `<div class="youtube-embed-wrapper">` placeholder with nothing inside)
+ *     is also Level A: an attribute on an empty element can't be carrying
+ *     meaning, since there's no content for it to modify
+ *     (docs/decision-log.md D17).
+ *   - Level B ("Fix Safely"): the same wrapper tags, WITH an attribute
+ *     (class/style/id/data-*) AND non-empty content that we can't prove is
+ *     purely cosmetic. The unwrap is still mechanically identical and still
+ *     provably text-preserving, so a fix is offered — but held for human
+ *     confirmation rather than applied silently, since an attribute on
+ *     content could (in principle) be carrying meaning this importer
+ *     doesn't understand.
  *   - Level C (manual review): anything else outside the allowlist (tables,
  *     images, embeds, unknown tags, scripts). No proof of safe recoverability
  *     exists, so this never gets a "Fix Safely" action — same behavior as
@@ -33,6 +40,26 @@ const TAG_NAME_PATTERN = /<\/?\s*([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g;
 const SAFE_HREF_PATTERN = /^https?:\/\//i;
 const ANCHOR_PATTERN_SOURCE = '<a\\s+[^>]*href="([^"]*)"[^>]*>([\\s\\S]*?)<\\/a>';
 const WRAPPER_OPEN_TAG_PATTERN = /<(div|span)(\s+[^>]*)?>/gi;
+/**
+ * Matches a whole `<div>`/`<span>` element, open tag through its matching
+ * close tag. Non-greedy and non-nesting-aware, same tradeoff the file's other
+ * regex-based extraction already makes (see `ANCHOR_PATTERN_SOURCE`) — real
+ * Spectora embed-wrapper placeholders are flat, not nested.
+ */
+const WRAPPER_ELEMENT_PATTERN = /<(div|span)(\s[^>]*)?>([\s\S]*?)<\/\1>/gi;
+/**
+ * Anything in a wrapper element (its attributes OR its content) that could
+ * plausibly be a real media reference. Deliberately does NOT bare-match
+ * words like "youtube"/"embed"/"vimeo" on their own — Spectora's own
+ * generated wrapper class name is literally `youtube-embed-wrapper`, on
+ * every embed placeholder whether or not a video was ever attached, so a
+ * bare keyword match would treat every harmless empty placeholder as
+ * "real media" and never let this exception fire at all. What actually
+ * indicates content — an attribute assignment, a URL, a real domain, or an
+ * actual disallowed tag — is what this checks instead.
+ */
+const MEDIA_SIGNAL_PATTERN =
+  /\bsrc\s*=|\bdata-src\s*=|https?:\/\/|youtube\.com|youtu\.be|vimeo\.com|<iframe|<object|<video|<audio|<embed\b/i;
 const EMPTY_TAG_PATTERN = /<([a-zA-Z][a-zA-Z0-9]*)(\s[^>]*)?>\s*<\/\1>/i;
 const ENTITY_PATTERN = /&(nbsp|amp|lt|gt|quot|#39|apos);/i;
 const NON_CANONICAL_BR_PATTERN = /<br\s*\/?\s*>/gi;
@@ -65,6 +92,28 @@ function wrappersAreBare(rawHtml: string): boolean {
     if (match[2]?.trim()) return false;
   }
   return sawWrapper;
+}
+
+interface WrapperElementInfo {
+  hasAttributes: boolean;
+  /** No text content and no plausible media signal anywhere in the element (attributes or content). */
+  isEmpty: boolean;
+}
+
+/** Inspects every `<div>`/`<span>` element in the field so callers can tell "empty placeholder" from "wrapper actually holding something." */
+function analyzeWrapperElements(rawHtml: string): WrapperElementInfo[] {
+  const elements: WrapperElementInfo[] = [];
+  WRAPPER_ELEMENT_PATTERN.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = WRAPPER_ELEMENT_PATTERN.exec(rawHtml))) {
+    const [full, , attrs, inner] = match;
+    const innerText = stripToPlainText(inner);
+    elements.push({
+      hasAttributes: Boolean(attrs?.trim()),
+      isEmpty: innerText === "" && !MEDIA_SIGNAL_PATTERN.test(full),
+    });
+  }
+  return elements;
 }
 
 /** Unwraps (rather than deletes) any `<a>` whose href isn't http(s): keeps the visible text, drops the link. */
@@ -152,6 +201,7 @@ export interface NormalizationEventInput {
 function detectNormalizationEvents(
   rawHtml: string,
   harmlessWrapperTags: string[],
+  emptyEmbedWrapperRemoved: boolean,
   finalPlainText: string,
   finalSafeHtml: string,
   safeLinkCount: number
@@ -176,6 +226,9 @@ function detectNormalizationEvents(
       "harmless_wrapper_removed",
       `Removed attribute-free wrapper tag(s) (${harmlessWrapperTags.join(", ")}) with no effect on content.`
     );
+  }
+  if (emptyEmbedWrapperRemoved) {
+    push("empty_embed_wrapper_removed", "Removed an empty media/embed wrapper containing no meaningful source content.");
   }
   NON_CANONICAL_BR_PATTERN.lastIndex = 0;
   if (NON_CANONICAL_BR_PATTERN.test(rawHtml) && !/<br>/.test(rawHtml)) {
@@ -233,7 +286,20 @@ export function processRichContent(rawHtml: string): RichContentResult {
   const wrapperTagsPresent = allDisallowedTags.filter((tag) => HARMLESS_WRAPPER_TAGS.has(tag));
   const trueDisallowedTags = allDisallowedTags.filter((tag) => !HARMLESS_WRAPPER_TAGS.has(tag));
   const bareWrappers = wrapperTagsPresent.length > 0 && trueDisallowedTags.length === 0 && wrappersAreBare(rawHtml);
-  const recoverableWrappers = wrapperTagsPresent.length > 0 && trueDisallowedTags.length === 0 && !bareWrappers;
+
+  // Only relevant once we already know every disallowed tag in this field is
+  // a div/span (trueDisallowedTags.length === 0) — a real <iframe>/<object>/
+  // etc. anywhere in the field means there's real, non-wrapper markup to
+  // review, and this never even runs.
+  const attributedWrapperElements =
+    wrapperTagsPresent.length > 0 && trueDisallowedTags.length === 0 && !bareWrappers
+      ? analyzeWrapperElements(rawHtml).filter((element) => element.hasAttributes)
+      : [];
+  const emptyEmbedWrapperRemoved =
+    attributedWrapperElements.length > 0 && attributedWrapperElements.every((element) => element.isEmpty);
+
+  const recoverableWrappers =
+    wrapperTagsPresent.length > 0 && trueDisallowedTags.length === 0 && !bareWrappers && !emptyEmbedWrapperRemoved;
 
   const { html: linkSafeHtml, droppedUnsafeLink } = stripUnsafeLinks(rawHtml);
   const rawSafeHrefs = extractAnchorHrefs(linkSafeHtml);
@@ -274,6 +340,7 @@ export function processRichContent(rawHtml: string): RichContentResult {
   const normalizationEvents = detectNormalizationEvents(
     rawHtml,
     bareWrappers ? wrapperTagsPresent : [],
+    emptyEmbedWrapperRemoved,
     plainText,
     safeHtml,
     droppedUnsafeLink ? 0 : links.length

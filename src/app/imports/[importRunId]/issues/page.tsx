@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ListTodo, LayoutTemplate, ChevronRight, MapPin, Archive, Filter } from "lucide-react";
+import { ListTodo, LayoutTemplate, ChevronRight, MapPin, Archive, Filter, CheckCircle2 } from "lucide-react";
 import { PageShell } from "@/components/layout/page-shell";
 import { toAppError } from "@/lib/errors/app-error";
 import { PageHeader } from "@/components/patterns/page-header";
@@ -54,13 +54,17 @@ function IssueHierarchyBreadcrumb({ hierarchy }: { hierarchy: ImportRunIssueDeta
 }
 
 /**
- * A row inside the "unsupported_source_content" group whose content WAS
- * mapped successfully (`rowGenuinelyUnsupported: false`) has nothing wrong
- * with it — the issue is purely an informational note about extra
- * spreadsheet columns this importer doesn't model. Rendering one full card
- * per such row (this real Spectora template export has 300+) buries the
- * handful of rows that actually need attention. Collapsed by default, never
- * hidden: every row and its full raw text stays reachable by expanding.
+ * LEGACY PATH — for import runs created before the `unsupported_metadata`
+ * category existed (docs/decision-log.md D17). Those runs' mapped-but-extra-
+ * columns rows are still stored as `unrecognized_row`, so `rowGenuinelyUnsupported`
+ * (derived from that run's own `sourceCoverage`) is what tells them apart here.
+ * A NEW import never reaches this component at all: its metadata rows already
+ * carry the `unsupported_metadata` category, land in their own group, and
+ * render as full `IssueCard`s (per-row "Mapped successfully" + Mark reviewed).
+ * Kept only so a historical run's "unsupported_source_content" group doesn't
+ * render one full card per row it never should have flagged as unsupported in
+ * the first place — collapsed by default, never hidden: every row and its
+ * full raw text stays reachable by expanding.
  */
 function MappedRowsWithExtraColumns({ issues }: { issues: ImportRunIssueDetail[] }) {
   if (issues.length === 0) return null;
@@ -102,13 +106,21 @@ function IssueCard({
   importRunId: string;
   templateId: string;
 }) {
+  const isMetadataOnly = issue.category === "unsupported_metadata";
+
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <StatusBadge tone={SEVERITY_TONE[issue.severity as keyof typeof SEVERITY_TONE] ?? "neutral"}>
-            {issue.severity}
-          </StatusBadge>
+          {isMetadataOnly ? (
+            <StatusBadge tone="success" icon={CheckCircle2}>
+              Mapped successfully
+            </StatusBadge>
+          ) : (
+            <StatusBadge tone={SEVERITY_TONE[issue.severity as keyof typeof SEVERITY_TONE] ?? "neutral"}>
+              {issue.severity}
+            </StatusBadge>
+          )}
           <span className="text-xs text-text-muted">
             {issue.sourceSheet} · row {issue.sourceRowNumber}
           </span>
@@ -135,12 +147,17 @@ function IssueCard({
 
       <p className="text-sm text-text">{issue.explanation}</p>
 
-      <SourceComparison source={issue.rawSnippet} imported={issue.importedPreview} />
+      <SourceComparison
+        source={issue.rawSnippet}
+        imported={issue.importedPreview}
+        importedLabel={isMetadataOnly ? "Mapped destination + content" : "Imported"}
+      />
 
       <p className="flex items-start gap-1.5 text-xs text-text-muted">
         <Archive className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-        Present in source, unsupported by this importer — the original raw text above is retained in full
-        for your records, never discarded.
+        {isMetadataOnly
+          ? "The template content above was imported successfully. Original source row retained in full for traceability, never discarded."
+          : "Present in source, unsupported by this importer — the original raw text above is retained in full for your records, never discarded."}
       </p>
     </div>
   );

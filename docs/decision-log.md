@@ -512,3 +512,66 @@ blob. It's populated as a best-effort write after the atomic
 `import_template` call, the same posture as the AI auditor's own writes
 (D13): losing this purely-informational log must never fail an
 otherwise-successful import.
+
+### D17 — Emptiness, not just tag/attribute, decides an embed wrapper's level; a row's own footprint in the tree decides its issue category
+
+**Decision**: Two refinements found against the real Spectora export
+(`sample-data/spectora/Residential Template-2026-09-15.xls`), both landing on
+the same underlying rule — classify by proof, not by a locally-available
+proxy for it:
+
+1. D16's attribute-based Level A/B line gets one exception: an
+   attribute-bearing `<div>`/`<span>` wrapper (e.g. Spectora's own
+   `<div class="youtube-embed-wrapper" style="...">` placeholder, emitted on
+   every embed slot whether or not a video was ever attached) is still Level
+   A (silent, `empty_embed_wrapper_removed`) when it is proven empty — no
+   text, no `src`/`data-src`, no embed URL, no known video-host domain, no
+   other disallowed tag anywhere in the field. An attribute on an empty
+   element can't be carrying meaning, because there is no content left for
+   it to modify.
+2. A brand-new `unsupported_metadata` issue category (`ImportIssueCategorySchema`)
+   is now used instead of `unrecognized_row` whenever a row's extra,
+   unmodeled Spectora columns (field type, checkbox/select options, defaults,
+   timestamps, etc.) sit on a row whose section/item/comment content *did*
+   land in the tree. `unrecognized_row` is now reserved for rows that
+   produced nothing at all. The decision of which applies moved from
+   `normalize.ts` into `buildHierarchy` (`hierarchy.ts`), because only that
+   stage knows, at the moment it processes a row, whether the row's own
+   section/item value actually started something new versus merely repeated
+   the current group (Spectora's "repeat every row" convention) — a row can
+   have non-blank section/item cells and still contribute nothing new to the
+   tree. `import_issues.category` is plain `text` with no CHECK constraint,
+   so this needed no migration.
+
+**Alternatives considered**: For (2), deciding the category in `normalize.ts`
+from the row's own locally non-blank section/item/comment cells (simpler,
+but wrong: a repeated-name row with a blank comment has non-blank cells yet
+creates nothing new, so it would have been misclassified as "mapped" and
+silently dropped out of `sourceCoverage.unsupportedRows` into nothing —
+exactly the kind of silent loss this project exists to prevent). Cross-
+referencing `compute-integrity.ts`'s already-computed `sourceCoverage` after
+the fact, the way `get-import-run-issues.ts`'s `rowGenuinelyUnsupported` does
+for historical data, was rejected as the primary mechanism for *new* imports:
+it would leave the stored `category` itself permanently wrong, forcing every
+future reader (the Issues UI, the AI auditor's payload, this migration's own
+next reader) to re-derive the correct meaning instead of just reading it.
+
+**Why**: Both fixes replace "the only signal available at the point code
+used to look" with "the actual fact that signal was standing in for."
+`unrecognized_row` meant two genuinely different things — "nothing here
+mapped" and "this mapped, but see also its extra columns" — collapsed into
+one number. On the real export this showed as "Unsupported source content
+(392)" when only 57 of those 392 rows were actually unsupported; the other
+335 had already mapped cleanly. Splitting the category is what lets
+`sourceCoverage`'s mapped/unsupported/ignored/unaccounted equation stay
+correct AND lets the Issues UI stop implying near-total import failure over
+a template that actually imported correctly.
+
+**Historical data**: This is deliberately NOT retroactive. Import runs from
+before this decision keep their `unrecognized_row` rows exactly as classified
+at the time; `rowGenuinelyUnsupported`'s cross-check against that run's own
+`sourceCoverage` (D9) still correctly separates "genuinely unsupported" from
+"mapped, extra columns" for them, and the Issue Review UI still collapses the
+latter. A template only gets the precise `unsupported_metadata` category, and
+the `empty_embed_wrapper_removed` safe-normalization behavior, by being
+re-imported.

@@ -174,14 +174,12 @@ export function parseSpectoraWorkbook(
   // boundary would let a section at the end of one sheet absorb rows from the
   // start of the next, which no export format implies.
   const sections: CanonicalSection[] = [];
-  const normalizeIssues: ImportIssueCandidate[] = [];
   const hierarchyIssues: ImportIssueCandidate[] = [];
   const sourceRowRecords: SourceRowRecord[] = [];
   const normalizationEvents: NormalizationEvent[] = [];
 
   for (const sheet of extractedSheets) {
     const normalized = normalizeRows(sheet.rows);
-    normalizeIssues.push(...normalized.issues);
 
     const built = buildHierarchy(normalized.rows, { generateId: input.generateId });
     hierarchyIssues.push(...built.issues);
@@ -213,7 +211,7 @@ export function parseSpectoraWorkbook(
     sections,
   };
 
-  const issues = [...sheetIssues, ...normalizeIssues, ...hierarchyIssues];
+  const issues = [...sheetIssues, ...hierarchyIssues];
   const validation = validateCanonicalTemplate(templateCandidate);
 
   if (!validation.success) {

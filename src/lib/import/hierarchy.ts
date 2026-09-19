@@ -30,6 +30,19 @@ function toNormalizationEvent(
   return { ...input, sourceRef, automatic: true };
 }
 
+const UNSUPPORTED_METADATA_EXPLANATION_BASE =
+  "The template content was imported successfully, but this Spectora row contains additional source metadata that the current editor does not represent.";
+
+/** Never guesses at field meaning — lists exactly the header label + value pairs genuinely present in the source (docs/decision-log.md D17). */
+function buildUnsupportedMetadataExplanation(fields: NormalizedRow["unmappedFields"]): string {
+  if (fields.length === 0) return UNSUPPORTED_METADATA_EXPLANATION_BASE;
+  const list = fields.map((field) => `${field.label}: ${field.value}`).join("; ");
+  return `${UNSUPPORTED_METADATA_EXPLANATION_BASE} Additional fields: ${list}.`;
+}
+
+const UNSUPPORTED_ROW_EXPLANATION =
+  "This meaningful source content could not be represented in the current section/item/comment model. The original source remains retained for review.";
+
 export function buildHierarchy(
   rows: NormalizedRow[],
   options: BuildHierarchyOptions = {}
@@ -48,6 +61,8 @@ export function buildHierarchy(
   let currentItem: CanonicalItem | null = null;
 
   for (const row of rows) {
+    let producedMappedNode = false;
+
     const currentSectionName: string | undefined = currentSection?.name;
     if (row.section && row.section !== currentSectionName) {
       const newSection: CanonicalSection = {
@@ -60,6 +75,7 @@ export function buildHierarchy(
       sections.push(newSection);
       currentSection = newSection;
       currentItem = null; // a new section always starts a fresh item context
+      producedMappedNode = true;
     }
 
     const currentItemName: string | undefined = currentItem?.name;
@@ -83,6 +99,7 @@ export function buildHierarchy(
         };
         currentSection.items.push(newItem);
         currentItem = newItem;
+        producedMappedNode = true;
       }
     }
 
@@ -164,6 +181,40 @@ export function buildHierarchy(
         sourceRef: row.sourceRef,
         linkMetadata: links.length > 0 ? links : undefined,
       });
+      producedMappedNode = true;
+    }
+
+    // Extra spreadsheet columns this row carries outside section/item/comment
+    // (docs/decision-log.md D17). Which category applies depends on whether
+    // THIS row actually landed anything new in the tree above — a repeated
+    // section/item name with a blank comment produces nothing new even
+    // though its own cells are non-blank, so `producedMappedNode` (not the
+    // row's raw cell content) is what decides "mapped" vs "genuinely
+    // unsupported." This is exactly what keeps sourceCoverage's mapped/
+    // unsupported counts mathematically correct: a row only ever lands here
+    // when it did NOT already flow into `currentSection`, `currentItem`, or
+    // a fresh comment above.
+    if (row.hasUnmappedContent) {
+      if (producedMappedNode) {
+        issues.push({
+          category: "unsupported_metadata",
+          severity: "info",
+          sourceRef: row.sourceRef,
+          explanation: buildUnsupportedMetadataExplanation(row.unmappedFields),
+          rawSnippet: row.rawRowText.slice(0, RAW_SNIPPET_LIMIT),
+          importedPreview:
+            [currentSection?.name, currentItem?.name, row.commentRawHtml].filter(Boolean).join(" / ") || null,
+        });
+      } else {
+        issues.push({
+          category: "unrecognized_row",
+          severity: "warning",
+          sourceRef: row.sourceRef,
+          explanation: UNSUPPORTED_ROW_EXPLANATION,
+          rawSnippet: row.rawRowText.slice(0, RAW_SNIPPET_LIMIT),
+          importedPreview: null,
+        });
+      }
     }
   }
 

@@ -26,6 +26,17 @@ const DEFAULT_MODEL = "claude-sonnet-5";
 const ANTHROPIC_VERSION = "2023-06-01";
 
 /**
+ * 1024 was too small in practice: a reasoning-capable model (e.g. one
+ * routed through a LiteLLM proxy) can spend its entire completion budget on
+ * hidden chain-of-thought tokens before ever writing the visible JSON
+ * answer, producing `finish_reason: "length"` and an empty `content` — not
+ * a transport failure, just starvation. This response is a short, fixed-
+ * shape JSON object (`AUDIT_SYSTEM_PROMPT` below), so there's no meaningful
+ * cost tradeoff to raising the ceiling for every provider.
+ */
+const MAX_COMPLETION_TOKENS = 4096;
+
+/**
  * One provider, implemented with `fetch` against the Anthropic Messages API.
  *
  * No SDK on purpose: this makes exactly one HTTP call with a handful of
@@ -46,7 +57,7 @@ function createAnthropicProvider(apiKey: string, model: string): AiProvider {
         },
         body: JSON.stringify({
           model,
-          max_tokens: 1024,
+          max_tokens: MAX_COMPLETION_TOKENS,
           temperature: 0,
           system,
           messages: [{ role: "user", content: user }],
@@ -61,14 +72,19 @@ function createAnthropicProvider(apiKey: string, model: string): AiProvider {
         throw new Error(`Anthropic request failed (${response.status}): ${detail.slice(0, 500)}`);
       }
 
-      const data = (await response.json()) as { content?: { type: string; text?: string }[] };
+      const data = (await response.json()) as {
+        content?: { type: string; text?: string }[];
+        stop_reason?: string;
+      };
       const text = (data.content ?? [])
         .filter((block) => block.type === "text")
         .map((block) => block.text ?? "")
         .join("")
         .trim();
 
-      if (!text) throw new Error("Anthropic returned an empty response.");
+      if (!text) {
+        throw new Error(`Anthropic returned an empty response (stop_reason: ${data.stop_reason ?? "unknown"}).`);
+      }
       return text;
     },
   };
@@ -96,7 +112,7 @@ function createOpenAiCompatibleProvider(apiKey: string, baseUrl: string, model: 
         body: JSON.stringify({
           model,
           temperature: 0,
-          max_tokens: 1024,
+          max_tokens: MAX_COMPLETION_TOKENS,
           messages: [
             { role: "system", content: system },
             { role: "user", content: user },
@@ -111,11 +127,19 @@ function createOpenAiCompatibleProvider(apiKey: string, baseUrl: string, model: 
       }
 
       const data = (await response.json()) as {
-        choices?: { message?: { content?: string } }[];
+        choices?: { message?: { content?: string }; finish_reason?: string }[];
       };
       const text = (data.choices?.[0]?.message?.content ?? "").trim();
 
-      if (!text) throw new Error("OpenAI-compatible provider returned an empty response.");
+      if (!text) {
+        // A reasoning-capable model (finish_reason "length" with no visible
+        // content) can burn its entire token budget on hidden reasoning
+        // before ever writing the answer — surfaced here, not just "empty",
+        // so a misconfigured AI_AUDITOR_MODEL is diagnosable from the
+        // ai_audits.failure_reason column alone.
+        const finishReason = data.choices?.[0]?.finish_reason ?? "unknown";
+        throw new Error(`OpenAI-compatible provider returned an empty response (finish_reason: ${finishReason}).`);
+      }
       return text;
     },
   };

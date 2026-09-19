@@ -96,13 +96,14 @@ describe("parseSpectoraWorkbook — synthetic fixture (happy path + flagged issu
     expect(waterHeater.comments[1].linkMetadata ?? []).toHaveLength(0);
   });
 
-  it("flags the unmapped Photos column value without dropping the item it's attached to", () => {
+  it("flags the unmapped Photos column as metadata on the mapped Fixtures item, not as unsupported content", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const unmapped = result.issues.find(
-      (i) => i.category === "unrecognized_row" && i.importedPreview?.includes("Fixtures")
+      (i) => i.category === "unsupported_metadata" && i.importedPreview?.includes("Fixtures")
     );
     expect(unmapped).toBeDefined();
+    expect(unmapped?.rawSnippet).toContain("3");
     const fixtures = result.template.sections[1].items[1];
     expect(fixtures.name).toBe("Fixtures");
     expect(fixtures.comments).toHaveLength(0); // legitimately absent in source, not an issue

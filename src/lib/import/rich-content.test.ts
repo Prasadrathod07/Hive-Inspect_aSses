@@ -160,6 +160,54 @@ describe("processRichContent — Level A: silent safe normalization", () => {
   });
 });
 
+describe("processRichContent — empty embed wrapper (Level A despite an attribute)", () => {
+  it("silently removes an empty youtube-embed-wrapper placeholder, keeping the surrounding paragraph — found against a real Spectora export", () => {
+    const result = processRichContent(
+      '<p>Wall had damage from doorknob. Recommend a qualified handyman or drywall contractor repair.</p>\n\n' +
+        '<div class="youtube-embed-wrapper" style="position:relative;padding-bottom:56.25%;padding-top:30px;height:0;overflow:hidden;">\n</div>'
+    );
+    expect(result.fixSafely).toBeNull();
+    expect(result.disallowedTags).toEqual([]);
+    expect(result.safeHtml).not.toContain("youtube-embed-wrapper");
+    expect(result.plainText).toBe(
+      "Wall had damage from doorknob. Recommend a qualified handyman or drywall contractor repair."
+    );
+  });
+
+  it("records an empty_embed_wrapper_removed normalization event, never an issue", () => {
+    const result = processRichContent(
+      '<div class="youtube-embed-wrapper" style="padding-bottom:56.25%;"></div>'
+    );
+    expect(result.normalizationEvents.map((e) => e.type)).toContain("empty_embed_wrapper_removed");
+    expect(result.fixSafely).toBeNull();
+  });
+
+  it("still offers Fix Safely (Level B) when the same class of wrapper actually contains an iframe", () => {
+    const result = processRichContent(
+      '<div class="youtube-embed-wrapper" style="padding-bottom:56.25%;">' +
+        '<iframe src="https://www.youtube.com/embed/abc123"></iframe>' +
+        "</div>"
+    );
+    expect(result.disallowedTags).toContain("iframe");
+    expect(result.fixSafely).toBeNull(); // Level C, not even Level B — genuinely unsupported media
+    expect(result.normalizationEvents.map((e) => e.type)).not.toContain("empty_embed_wrapper_removed");
+  });
+
+  it("still offers Fix Safely (Level B), not silent removal, when the wrapper has visible text", () => {
+    const result = processRichContent('<div class="youtube-embed-wrapper">Video unavailable</div>');
+    expect(result.fixSafely).not.toBeNull();
+    expect(result.normalizationEvents.map((e) => e.type)).not.toContain("empty_embed_wrapper_removed");
+  });
+
+  it("still offers Fix Safely (Level B), not silent removal, when the wrapper carries a real video URL", () => {
+    const result = processRichContent(
+      '<div class="youtube-embed-wrapper" data-src="https://www.youtube.com/watch?v=abc123"></div>'
+    );
+    expect(result.fixSafely).not.toBeNull();
+    expect(result.normalizationEvents.map((e) => e.type)).not.toContain("empty_embed_wrapper_removed");
+  });
+});
+
 describe("processRichContent — Level B: recoverable content ('Fix Safely')", () => {
   it("offers a Fix Safely proposal for a div wrapper WITH an attribute, and withholds safeHtml until applied", () => {
     const result = processRichContent('<div class="custom-wrapper">Roof   condition<br>appears good.</div>');

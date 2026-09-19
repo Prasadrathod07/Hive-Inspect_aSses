@@ -10,6 +10,7 @@ export type IssueGroupKey =
   | "recoverable_content"
   | "formatting_changed"
   | "unsupported_source_content"
+  | "unsupported_metadata"
   | "unmapped_rows"
   | "link_differences"
   | "validation_issues";
@@ -40,7 +41,14 @@ const GROUPS: Record<IssueGroupKey, IssueGroupMeta> = {
   unsupported_source_content: {
     key: "unsupported_source_content",
     label: "Unsupported source content",
-    description: "Content existed in the source but couldn't be mapped into the section/item/comment structure.",
+    description:
+      "This meaningful source content could not be represented in the current section/item/comment model. The original source remains retained for review.",
+  },
+  unsupported_metadata: {
+    key: "unsupported_metadata",
+    label: "Unsupported source metadata",
+    description:
+      "The template content was imported successfully, but these Spectora rows contain additional source metadata that the current editor does not represent.",
   },
   unmapped_rows: {
     key: "unmapped_rows",
@@ -59,7 +67,12 @@ const GROUPS: Record<IssueGroupKey, IssueGroupMeta> = {
   },
 };
 
-/** Ordered by how urgently each group tends to need attention. */
+/**
+ * Ordered by how urgently each group tends to need attention.
+ * `unsupported_metadata` is deliberately last — it's purely informational
+ * (the row's primary content already mapped; see docs/decision-log.md D17)
+ * and should never visually compete with groups that actually need review.
+ */
 export const ISSUE_GROUP_ORDER: IssueGroupKey[] = [
   "validation_issues",
   "sanitized_unsafe_html",
@@ -68,6 +81,7 @@ export const ISSUE_GROUP_ORDER: IssueGroupKey[] = [
   "unsupported_source_content",
   "link_differences",
   "formatting_changed",
+  "unsupported_metadata",
 ];
 
 const UNSAFE_TAG_PATTERN = /<\s*\/?\s*(script|iframe|object|embed)\b|on\w+\s*=/i;
@@ -88,6 +102,8 @@ export function classifyIssueGroup(issue: ClassifiableIssue): IssueGroupKey {
       return "recoverable_content";
     case "unrecognized_row":
       return "unsupported_source_content";
+    case "unsupported_metadata":
+      return "unsupported_metadata";
     case "ambiguous_hierarchy":
       return "unmapped_rows";
     case "unsupported_link":

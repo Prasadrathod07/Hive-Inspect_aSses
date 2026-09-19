@@ -89,7 +89,7 @@ describe("header wording — detection by keyword, never by position", () => {
     expect(result.template.sections[0].items[0].comments[0].plainText).toBe("Looks fine.");
   });
 
-  it("tolerates extra columns it doesn't understand, and says so", () => {
+  it("tolerates extra columns it doesn't understand, and says so — as metadata on a mapped row, not as unsupported content", () => {
     const result = parse(
       workbook([
         {
@@ -106,11 +106,13 @@ describe("header wording — detection by keyword, never by position", () => {
     if (!result.ok) return;
     // The known structure still imports...
     expect(result.template.sections[0].items[0].comments[0].plainText).toBe("Looks fine.");
-    // ...and the unmapped columns are reported, not dropped in silence.
-    const unmapped = result.issues.find((issue) => issue.category === "unrecognized_row");
+    // ...and the unmapped columns are reported as metadata on the already-mapped
+    // row, not dropped in silence and not counted as unsupported primary content.
+    const unmapped = result.issues.find((issue) => issue.category === "unsupported_metadata");
     expect(unmapped).toBeDefined();
     expect(unmapped?.rawSnippet).toContain("photo1.jpg");
     expect(unmapped?.rawSnippet).toContain("Good");
+    expect(result.issues.some((issue) => issue.category === "unrecognized_row")).toBe(false);
   });
 });
 

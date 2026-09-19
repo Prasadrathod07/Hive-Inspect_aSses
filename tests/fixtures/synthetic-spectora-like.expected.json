@@ -168,17 +168,6 @@
   },
   "issues": [
     {
-      "category": "unrecognized_row",
-      "severity": "info",
-      "sourceRef": {
-        "sheet": "Sheet1",
-        "rowNumber": 9
-      },
-      "explanation": "This row has content in one or more columns outside the recognized section/item/comment columns; that extra content was not imported.",
-      "rawSnippet": "\tFixtures\t\t3",
-      "importedPreview": "Fixtures"
-    },
-    {
       "category": "unsupported_formatting",
       "severity": "info",
       "sourceRef": {
@@ -199,6 +188,17 @@
       "explanation": "Removed a link with a missing or unsupported URL scheme (only http/https are supported). The link's visible text was preserved.",
       "rawSnippet": "<p>See spec sheet: <a href=\"javascript:alert(1)\">click here</a></p>",
       "importedPreview": "See spec sheet: click here"
+    },
+    {
+      "category": "unsupported_metadata",
+      "severity": "info",
+      "sourceRef": {
+        "sheet": "Sheet1",
+        "rowNumber": 9
+      },
+      "explanation": "The template content was imported successfully, but this Spectora row contains additional source metadata that the current editor does not represent. Additional fields: Photos: 3.",
+      "rawSnippet": "\tFixtures\t\t3",
+      "importedPreview": "Plumbing / Fixtures"
     },
     {
       "category": "ambiguous_hierarchy",

@@ -9,6 +9,9 @@ function row(partial: Partial<NormalizedRow> & { rowNumber: number }): Normalize
     section: partial.section ?? null,
     item: partial.item ?? null,
     commentRawHtml: partial.commentRawHtml ?? null,
+    hasUnmappedContent: partial.hasUnmappedContent ?? false,
+    unmappedFields: partial.unmappedFields ?? [],
+    rawRowText: partial.rawRowText ?? "",
   };
 }
 
@@ -128,6 +131,69 @@ describe("buildHierarchy", () => {
     expect(issues).toHaveLength(1);
     expect(issues[0].category).toBe("unsupported_formatting");
     expect(issues[0].fixSafelyAvailable).toBeFalsy();
+  });
+
+  it("classifies a mapped row's extra columns as unsupported_metadata, never as unsupported primary content", () => {
+    const { sections, issues } = buildHierarchy([
+      row({
+        rowNumber: 2,
+        section: "Inspection Details",
+        item: "General",
+        hasUnmappedContent: true,
+        unmappedFields: [{ label: "Answer Type", value: "checkbox" }, { label: "Options", value: "Occupied, Vacant" }],
+        rawRowText: "Inspection Details\tGeneral\t\tcheckbox\tOccupied, Vacant",
+      }),
+    ]);
+
+    expect(sections[0].name).toBe("Inspection Details");
+    expect(sections[0].items[0].name).toBe("General");
+    expect(issues).toHaveLength(1);
+    expect(issues[0].category).toBe("unsupported_metadata");
+    expect(issues[0].severity).toBe("info");
+    expect(issues[0].explanation).toContain("Answer Type: checkbox");
+    expect(issues[0].explanation).toContain("Options: Occupied, Vacant");
+    expect(issues[0].importedPreview).toBe("Inspection Details / General");
+  });
+
+  it("classifies a row that produced no mapped node at all as unrecognized_row (genuinely unsupported)", () => {
+    // A repeated section/item name (Spectora's "repeat on every row"
+    // convention) with no new comment produces nothing new in the tree, even
+    // though its own section/item cells are non-blank.
+    const { sections, issues } = buildHierarchy([
+      row({ rowNumber: 2, section: "Inspection Details", item: "General" }),
+      row({
+        rowNumber: 3,
+        section: "Inspection Details",
+        item: "General",
+        hasUnmappedContent: true,
+        unmappedFields: [{ label: "Comment Name", value: "Vacant" }],
+        rawRowText: "Inspection Details\tGeneral\tVacant",
+      }),
+    ]);
+
+    expect(sections[0].items).toHaveLength(1); // no second item/section created
+    expect(issues).toHaveLength(1);
+    expect(issues[0].category).toBe("unrecognized_row");
+    expect(issues[0].severity).toBe("warning");
+    expect(issues[0].sourceRef.rowNumber).toBe(3);
+    expect(issues[0].importedPreview).toBeNull();
+  });
+
+  it("does not double-count a metadata-only issue against the row's own mapped status when a comment is also present", () => {
+    const { issues } = buildHierarchy([
+      row({
+        rowNumber: 2,
+        section: "Roof",
+        item: "Shingles",
+        commentRawHtml: "Looks fine.",
+        hasUnmappedContent: true,
+        unmappedFields: [{ label: "Photos", value: "3" }],
+      }),
+    ]);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0].category).toBe("unsupported_metadata");
+    expect(issues[0].importedPreview).toBe("Roof / Shingles / Looks fine.");
   });
 
   it("produces fully deterministic, reproducible ids when a generator is injected", () => {

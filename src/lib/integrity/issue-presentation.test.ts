@@ -26,6 +26,12 @@ describe("classifyIssueGroup", () => {
     ).toBe("unsupported_source_content");
   });
 
+  it("maps unsupported_metadata to its own group, never lumped with unsupported source content", () => {
+    expect(
+      classifyIssueGroup({ category: "unsupported_metadata", rawSnippet: "x", explanation: "x" })
+    ).toBe("unsupported_metadata");
+  });
+
   it("maps ambiguous_hierarchy to unmapped rows", () => {
     expect(
       classifyIssueGroup({ category: "ambiguous_hierarchy", rawSnippet: "x", explanation: "x" })

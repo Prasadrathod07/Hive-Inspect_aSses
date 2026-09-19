@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AlertTriangle, CheckCircle2, Info, ShieldCheck, LayoutTemplate, ListTodo, Sparkles } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Info, ShieldCheck, LayoutTemplate, ListTodo, Sparkles, FileStack } from "lucide-react";
 import { PageShell } from "@/components/layout/page-shell";
 import { toAppError } from "@/lib/errors/app-error";
 import { PageHeader } from "@/components/patterns/page-header";
@@ -39,6 +39,7 @@ const NORMALIZATION_EVENT_LABELS: Record<string, string> = {
   duplicate_whitespace_collapsed: "Whitespace cleanup",
   empty_tag_removed: "HTML wrapper cleanup",
   harmless_wrapper_removed: "HTML wrapper cleanup",
+  empty_embed_wrapper_removed: "Empty media/embed wrapper cleanup",
   line_break_normalized: "Line break normalization",
   html_entity_decoded: "Entity normalization",
   formatting_normalized: "Supported formatting normalization",
@@ -153,6 +154,7 @@ export default async function ImportReportPage({
   const headline = getImportHeadline(integrity.status);
   const groups = groupIssues(report.issues);
   const timestamp = report.completedAt ?? report.createdAt;
+  const metadataIssueCount = report.issues.filter((issue) => issue.category === "unsupported_metadata").length;
 
   return (
     <PageShell>
@@ -180,6 +182,34 @@ export default async function ImportReportPage({
       </div>
 
       <PreservationVerdict coverage={integrity.sourceCoverage} />
+
+      {/* Deliberately separate from the coverage verdict above and styled
+          neutrally, never with warning/destructive tone — these rows already
+          mapped successfully (docs/decision-log.md D17). This is Spectora
+          configuration this editor doesn't represent, not a structural
+          import failure, and it must never read like one. */}
+      {metadataIssueCount > 0 ? (
+        <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface-muted p-5">
+          <div className="flex items-start gap-3">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent text-primary">
+              <FileStack className="size-4" aria-hidden="true" />
+            </span>
+            <div>
+              <h2 className="text-sm font-semibold text-text">Additional Spectora metadata</h2>
+              <p className="max-w-2xl text-sm text-text-muted">
+                {metadataIssueCount} row{metadataIssueCount === 1 ? "" : "s"} mapped into the template
+                successfully, and also carry{metadataIssueCount === 1 ? "s" : ""} source configuration
+                (field type, options, defaults, timestamps, etc.) this editor doesn&apos;t represent.
+              </p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" asChild>
+            <Link href={`/imports/${report.importRunId}/issues?category=unsupported_metadata`}>
+              Review metadata
+            </Link>
+          </Button>
+        </section>
+      ) : null}
 
       <SectionCard title="Import Integrity" description="Every number below is computed deterministically — never an AI estimate, never a percentage score.">
         <div className="flex flex-col gap-5">
@@ -274,7 +304,7 @@ export default async function ImportReportPage({
         description={
           groups.length === 0
             ? "Nothing to review — every meaningful row mapped cleanly."
-            : 'Every group below reflects content "present in source but unsupported by this importer" — never content we assumed was missing. The original raw text is retained for each one.'
+            : 'Every group below reflects content genuinely found in your source file — never content we assumed was missing. Most groups are "present in source but unsupported by this importer"; "Unsupported source metadata" is different — its rows already mapped successfully. The original raw text is retained for each one.'
         }
       >
         {groups.length === 0 ? (
@@ -292,7 +322,9 @@ export default async function ImportReportPage({
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-medium text-text">{group.label}</span>
-                  <StatusBadge tone="warning">{issues.length}</StatusBadge>
+                  <StatusBadge tone={group.key === "unsupported_metadata" ? "info" : "warning"}>
+                    {issues.length}
+                  </StatusBadge>
                 </div>
                 <p className="text-xs text-text-muted">{group.description}</p>
               </Link>
